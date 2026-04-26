@@ -1,11 +1,19 @@
 package main
 
 import (
-	"fmt"
 	"guilhermec-costa/go-web-crawler/internal/cli"
+	"guilhermec-costa/go-web-crawler/internal/crawler"
+	"guilhermec-costa/go-web-crawler/internal/log"
 )
 
 func main() {
-	flags := cli.ParseCrawlerFlags()
-	fmt.Println(flags)
+	flags, err := cli.ParseCrawlerFlags()
+	if err != nil {
+		cli.ExitWithFlagUsage(err.Error())
+	}
+
+	cli.ShowCrawlerConfigs(flags)
+	log.SetupLogger()
+
+	crawler.StartCrawlerEngine(flags)
 }

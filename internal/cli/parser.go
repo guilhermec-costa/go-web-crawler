@@ -1,25 +1,32 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 )
 
 type CrawlerFlags struct {
-	url     string
-	depth   int
-	workers int
+	Url     string
+	Depth   int
+	Workers int
 }
 
 func (f CrawlerFlags) String() string {
-	return fmt.Sprintf(`---CliFlags---
-url: %v
-depth: %v
-workers: %v`, f.url, f.depth, f.workers)
+	return fmt.Sprintf(
+		"URL     : %s\nDepth   : %d\nWorkers : %d",
+		f.Url, f.Depth, f.Workers,
+	)
 }
 
-func ParseCrawlerFlags() CrawlerFlags {
+func ExitWithFlagUsage(message string) {
+	fmt.Fprintln(os.Stderr, )
+	flag.Usage()
+	os.Exit(1)
+}
+
+func ParseCrawlerFlags() (CrawlerFlags, error) {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: crawler [options]\n\n")
 		flag.PrintDefaults()
@@ -32,16 +39,19 @@ func ParseCrawlerFlags() CrawlerFlags {
 	flag.Parse()
 
 	if len(*urlFlag) == 0 {
-		fmt.Fprintln(os.Stderr, "Error: -url is required")
-		flag.Usage()
-		os.Exit(1)
+		return CrawlerFlags{}, errors.New("-url is required")
 	}
 
 	return CrawlerFlags{
-		url:     *urlFlag,
-		depth:   *depthFlag,
-		workers: *workersFlag,
-	}
+		Url:     *urlFlag,
+		Depth:   *depthFlag,
+		Workers: *workersFlag,
+	}, nil
 }
 
-// func ParseUrl(url string)
+func ShowCrawlerConfigs(flags CrawlerFlags) {
+	fmt.Println("Crawler configuration")
+	fmt.Println("------------------------")
+	fmt.Println(flags)
+	fmt.Println()
+}
