@@ -7,13 +7,14 @@ import (
 )
 
 func main() {
+	log.SetupLogger()
+
 	flags, err := cli.ParseCrawlerFlags()
 	if err != nil {
 		cli.ExitWithFlagUsage(err.Error())
 	}
 
 	cli.ShowCrawlerConfigs(flags)
-	log.SetupLogger()
 
 	crawler.StartCrawlerEngine(flags)
 }

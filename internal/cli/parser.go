@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -21,7 +22,7 @@ func (f CrawlerFlags) String() string {
 }
 
 func ExitWithFlagUsage(message string) {
-	fmt.Fprintln(os.Stderr, )
+	fmt.Fprintln(os.Stderr)
 	flag.Usage()
 	os.Exit(1)
 }
@@ -50,8 +51,10 @@ func ParseCrawlerFlags() (CrawlerFlags, error) {
 }
 
 func ShowCrawlerConfigs(flags CrawlerFlags) {
-	fmt.Println("Crawler configuration")
-	fmt.Println("------------------------")
-	fmt.Println(flags)
-	fmt.Println()
+	log.Printf(
+		"Using URL: %s | Depth: %d | Workers: %d\n",
+		flags.Url,
+		flags.Depth,
+		flags.Workers,
+	)
 }
