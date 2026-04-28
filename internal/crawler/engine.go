@@ -6,13 +6,27 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sync"
+	"time"
 
 	"golang.org/x/net/html"
 )
 
-type NodeExtractionByTagResult map[string][]*html.Node
+type NodesByTag map[string][]*html.Node
+
+type extractionJob struct {
+	Url       *url.URL
+	ParentUrl *url.URL
+	depth     int
+}
+
+func timeTrack(start time.Time, name string) {
+	elapsed := time.Since(start)
+	log.Printf("%s took %s", name, elapsed)
+}
 
 func StartCrawlerEngine(args cli.CrawlerFlags) {
+	defer timeTrack(time.Now(), "StartCrawlerEngine")
 	log.Printf("Starting crawler for: %s", args.RootUrl)
 
 	rootUrl, err := url.Parse(args.RootUrl)
@@ -24,59 +38,77 @@ func StartCrawlerEngine(args cli.CrawlerFlags) {
 		log.Fatalf("[ERROR] %v", err)
 	}
 
-	var recursiveExtractPageNodes func(*url.URL, *url.URL, int)
-
 	extractions := []UrlExtractionResult{}
 	visited := make(map[string]bool)
 
-	recursiveExtractPageNodes = func(url *url.URL, parentUrl *url.URL, depth int) {
-		if depth > args.Depth {
-			return
-		}
+	var extractionMtx sync.Mutex
+	var visitedMtx sync.Mutex
 
-		if visited[url.String()] {
-			return
-		}
+	extractionJobs := make(chan extractionJob, args.Workers)
+	extractionResults := make(chan UrlExtractionResult, args.Workers)
 
-		visited[url.String()] = true
-
-		log.Printf("Extracting nodes from %v", url.String())
-
-		var result UrlExtractionResult
-		nodes, err := ExtractPageNodes(url)
-		if err != nil {
-			log.Printf("[ERROR] Failed to extract page nodes for %v: %s", url.String(), err.Error())
-			result = UrlExtractionResult{extractions: nil, url: url, parentUrl: parentUrl, error: err}
-			extractions = append(extractions, result)
-			return
-		}
-
-		result = UrlExtractionResult{extractions: nodes, url: url, parentUrl: parentUrl, error: nil}
-		extractions = append(extractions, result)
-
-		for _, node := range nodes[NodeExtractorTypeA] {
-			link := GetAttrValueFromNode(node, "href")
-			if link == nil || *link == "" || *link == "#" {
-				log.Printf("[ERROR] Failed to get link from node %v", node)
-				continue
-			}
-
-			u, err := url.Parse(*link)
-			if err != nil {
-				log.Printf("[ERROR] Failed to parse link from node %v", node)
-				continue
-			}
-
-			u = url.ResolveReference(u)
-			recursiveExtractPageNodes(u, url, depth+1)
-		}
+	for range args.Workers {
+		go nodesExtractionWorker(extractionJobs, extractionResults)
 	}
-	recursiveExtractPageNodes(rootUrl, nil, 0)
 
+	var wg sync.WaitGroup
+
+	enqueueJob := func(curUrl *url.URL, parentUrl *url.URL, depth int) {
+		wg.Add(1)
+		go func() {
+			extractionJobs <- extractionJob{curUrl, parentUrl, depth}
+		}()
+	}
+
+	go func() {
+		for result := range extractionResults {
+			visitedMtx.Lock()
+			if visited[result.url.String()] {
+				visitedMtx.Unlock()
+				wg.Done()
+				continue
+			}
+			visited[result.url.String()] = true
+			visitedMtx.Unlock()
+
+			extractionMtx.Lock()
+			extractions = append(extractions, result)
+			extractionMtx.Unlock()
+
+			for _, node := range result.extractedNodes[NodeExtractorTypeA] {
+				link := GetAttrValueFromNode(node, "href")
+				if link == nil || *link == "" || *link == "#" {
+					continue
+				}
+
+				parsedUrl, err := url.Parse(*link)
+				if err != nil {
+					log.Printf("[ERROR] Failed to parse link from node %v", node)
+					continue
+				}
+
+				resolvedUrl := result.url.ResolveReference(parsedUrl)
+
+				visitedMtx.Lock()
+				if !visited[resolvedUrl.String()] && result.depth < args.Depth {
+					visited[resolvedUrl.String()] = true
+					enqueueJob(resolvedUrl, result.url, result.depth+1)
+				}
+				visitedMtx.Unlock()
+			}
+			wg.Done()
+		}
+	}()
+
+	enqueueJob(rootUrl, nil, 0)
+
+	wg.Wait()
+	close(extractionJobs)
+	close(extractionResults)
 	fmt.Println("Results: ", extractions)
 }
 
-func ExtractPageNodes(pageUrl *url.URL) (NodeExtractionByTagResult, error) {
+func extractPageNodes(pageUrl *url.URL) (NodesByTag, error) {
 	resp, err := http.Get(pageUrl.String())
 	if err != nil {
 		return nil, fmt.Errorf("Failed to request html page for url %v: %w", pageUrl.String(), err)
@@ -97,10 +129,10 @@ func ExtractPageNodes(pageUrl *url.URL) (NodeExtractionByTagResult, error) {
 
 	extractors := []DOMExtractor{
 		NewDOMNodesExtractor(NodeExtractorTypeA),
-		// NewDOMNodesExtractor(NodeExtractorTypeH1),
-		// NewDOMNodesExtractor(NodeExtractorTypeDiv),
-		// NewDOMNodesExtractor(NodeExtractorTypeH2),
-		// NewDOMNodesExtractor(NodeExtractorTypeP),
+		NewDOMNodesExtractor(NodeExtractorTypeH1),
+		NewDOMNodesExtractor(NodeExtractorTypeDiv),
+		NewDOMNodesExtractor(NodeExtractorTypeH2),
+		NewDOMNodesExtractor(NodeExtractorTypeP),
 	}
 
 	type result struct {
@@ -111,8 +143,9 @@ func ExtractPageNodes(pageUrl *url.URL) (NodeExtractionByTagResult, error) {
 	extractions := make(chan result, len(extractors))
 
 	for _, e := range extractors {
+		// passing "e" as argument prevents race condition
 		go func(e DOMExtractor) {
-			log.Printf("Extracting dom nodes for %v type element", e.Type)
+			log.Printf("Extracting dom nodes for <%v> element", e.Type)
 			extractions <- result{
 				key:   e.Type,
 				nodes: e.ExtractNodes(doc),
@@ -120,11 +153,29 @@ func ExtractPageNodes(pageUrl *url.URL) (NodeExtractionByTagResult, error) {
 		}(e)
 	}
 
-	nodesByExtractionType := make(NodeExtractionByTagResult)
+	nodesByExtractionType := make(NodesByTag)
 	for range extractors {
 		r := <-extractions
 		nodesByExtractionType[r.key] = r.nodes
 	}
 
 	return nodesByExtractionType, nil
+}
+
+func nodesExtractionWorker(extractionQueue <-chan extractionJob, extractionResult chan<- UrlExtractionResult) {
+	for job := range extractionQueue {
+		log.Printf("Extracting nodes from %v", job.Url.String())
+
+		nodes, err := extractPageNodes(job.Url)
+
+		result := UrlExtractionResult{
+			extractedNodes: nodes,
+			url:            job.Url,
+			parentUrl:      job.ParentUrl,
+			error:          err,
+			depth:          job.depth,
+		}
+
+		extractionResult <- result
+	}
 }

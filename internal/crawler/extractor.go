@@ -60,10 +60,11 @@ func ReportExtractionsByTag(tags map[string][]*html.Node) {
 }
 
 type UrlExtractionResult struct {
-	extractions NodeExtractionByTagResult
-	url         *url.URL
-	parentUrl   *url.URL
-	error       error
+	extractedNodes NodesByTag
+	url            *url.URL
+	parentUrl      *url.URL
+	error          error
+	depth          int
 }
 
 func (r UrlExtractionResult) String() string {
@@ -83,7 +84,7 @@ func (r UrlExtractionResult) String() string {
 	}
 
 	total := 0
-	for _, nodes := range r.extractions {
+	for _, nodes := range r.extractedNodes {
 		total += len(nodes)
 	}
 
