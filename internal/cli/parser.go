@@ -9,15 +9,15 @@ import (
 )
 
 type CrawlerFlags struct {
-	Url     string
+	RootUrl     string
 	Depth   int
 	Workers int
 }
 
 func (f CrawlerFlags) String() string {
 	return fmt.Sprintf(
-		"URL     : %s\nDepth   : %d\nWorkers : %d",
-		f.Url, f.Depth, f.Workers,
+		"Root URL     : %s\nDepth   : %d\nWorkers : %d",
+		f.RootUrl, f.Depth, f.Workers,
 	)
 }
 
@@ -44,7 +44,7 @@ func ParseCrawlerFlags() (CrawlerFlags, error) {
 	}
 
 	return CrawlerFlags{
-		Url:     *urlFlag,
+		RootUrl:     *urlFlag,
 		Depth:   *depthFlag,
 		Workers: *workersFlag,
 	}, nil
@@ -53,7 +53,7 @@ func ParseCrawlerFlags() (CrawlerFlags, error) {
 func ShowCrawlerConfigs(flags CrawlerFlags) {
 	log.Printf(
 		"Using URL: %s | Depth: %d | Workers: %d\n",
-		flags.Url,
+		flags.RootUrl,
 		flags.Depth,
 		flags.Workers,
 	)

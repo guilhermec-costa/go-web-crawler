@@ -1,8 +1,11 @@
 package crawler
 
 import (
-	"golang.org/x/net/html"
+	"fmt"
 	"log"
+	"net/url"
+
+	"golang.org/x/net/html"
 )
 
 func extractNodesOfType(rootNode *html.Node, nodeType string) []*html.Node {
@@ -17,11 +20,11 @@ func extractNodesOfType(rootNode *html.Node, nodeType string) []*html.Node {
 }
 
 const (
-	NodeExtractorTypeHref string = "a"
-	NodeExtractorTypeH1   string = "h1"
-	NodeExtractorTypeH2   string = "h2"
-	NodeExtractorTypeDiv  string = "div"
-	NodeExtractorTypeP    string = "p"
+	NodeExtractorTypeA   string = "a"
+	NodeExtractorTypeH1  string = "h1"
+	NodeExtractorTypeH2  string = "h2"
+	NodeExtractorTypeDiv string = "div"
+	NodeExtractorTypeP   string = "p"
 )
 
 type DOMExtractor struct {
@@ -38,6 +41,15 @@ func NewDOMNodesExtractor(extType string) DOMExtractor {
 	}
 }
 
+func GetAttrValueFromNode(aElem *html.Node, attrKey string) *string {
+	for _, attr := range aElem.Attr {
+		if attr.Key == attrKey {
+			return &attr.Val
+		}
+	}
+	return nil
+}
+
 func ReportExtractionsByTag(tags map[string][]*html.Node) {
 	log.Println("[REPORT] Extraction summary")
 	log.Println("--------------------------------")
@@ -45,4 +57,41 @@ func ReportExtractionsByTag(tags map[string][]*html.Node) {
 	for tag, nodes := range tags {
 		log.Printf("• %-5s → %3d nodes", tag, len(nodes))
 	}
+}
+
+type UrlExtractionResult struct {
+	extractions NodeExtractionByTagResult
+	url         *url.URL
+	parentUrl   *url.URL
+	error       error
+}
+
+func (r UrlExtractionResult) String() string {
+	urlStr := "<nil>"
+	if r.url != nil {
+		urlStr = r.url.String()
+	}
+
+	parentStr := "<nil>"
+	if r.parentUrl != nil {
+		parentStr = r.parentUrl.String()
+	}
+
+	errStr := "nil"
+	if r.error != nil {
+		errStr = r.error.Error()
+	}
+
+	total := 0
+	for _, nodes := range r.extractions {
+		total += len(nodes)
+	}
+
+	return fmt.Sprintf(
+		"URL=%s | Parent=%s | Nodes=%d | Error=%s\n",
+		urlStr,
+		parentStr,
+		total,
+		errStr,
+	)
 }
