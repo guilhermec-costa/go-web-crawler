@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/net/html"
 	"guilhermec-costa/go-web-crawler/internal/cli"
 	"guilhermec-costa/go-web-crawler/internal/perf"
 	"log"
 	"net/url"
 	"sync"
 	"time"
-
-	"golang.org/x/net/html"
 )
 
 type NodesByTag map[string][]*html.Node
@@ -98,16 +97,29 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 
 	enqueueExtractionJob(rootUrl, nil, 0)
 
-	wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	// checks which channel closes first
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	close(extractionJobsQueue)
 	close(extractionResultsQueue)
-
 	fmt.Println("Results: ", extractions)
+
 	return nil
+
 }
 
 func Bootstrap(args cli.CrawlerFlags) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	defer perf.TimeTrack(time.Now(), "Bootstrap")
 

@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sync"
+
 	"golang.org/x/net/html"
 )
 
@@ -144,21 +146,34 @@ func extractPageNodes(ctx context.Context, pageUrl *url.URL) (NodesByTag, error)
 	}
 
 	extractions := make(chan result, len(extractors))
+	var wg sync.WaitGroup
 
 	for _, e := range extractors {
-		// passing "e" as argument prevents race condition
-		go func(e DOMExtractor) {
-			log.Printf("Extracting dom nodes for <%v> element", e.Type)
-			extractions <- result{
-				key:   e.Type,
-				nodes: e.ExtractNodes(doc),
-			}
-		}(e)
+		select {
+		case <-ctx.Done():
+			continue
+
+		default:
+			wg.Add(1)
+			// passing "e" as argument prevents race condition
+			go func(e DOMExtractor) {
+				defer wg.Done()
+				log.Printf("Extracting dom nodes for <%v> element", e.Type)
+				extractions <- result{
+					key:   e.Type,
+					nodes: e.ExtractNodes(doc),
+				}
+			}(e)
+		}
 	}
 
+	go func() {
+		wg.Wait()
+		close(extractions)
+	}()
+
 	nodesByExtractionType := make(NodesByTag)
-	for range extractors {
-		r := <-extractions
+	for r := range extractions {
 		nodesByExtractionType[r.key] = r.nodes
 	}
 
