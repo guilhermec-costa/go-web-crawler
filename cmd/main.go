@@ -16,5 +16,5 @@ func main() {
 
 	cli.ShowCrawlerConfigs(flags)
 
-	crawler.StartCrawlerEngine(flags)
+	crawler.Bootstrap(flags)
 }

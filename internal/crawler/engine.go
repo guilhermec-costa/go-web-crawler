@@ -1,10 +1,12 @@
 package crawler
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"guilhermec-costa/go-web-crawler/internal/cli"
+	"guilhermec-costa/go-web-crawler/internal/perf"
 	"log"
-	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -14,28 +16,22 @@ import (
 
 type NodesByTag map[string][]*html.Node
 
-type extractionJob struct {
+type ExtractionJob struct {
 	Url       *url.URL
 	ParentUrl *url.URL
 	depth     int
 }
 
-func timeTrack(start time.Time, name string) {
-	elapsed := time.Since(start)
-	log.Printf("%s took %s", name, elapsed)
-}
-
-func StartCrawlerEngine(args cli.CrawlerFlags) {
-	defer timeTrack(time.Now(), "StartCrawlerEngine")
+func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 	log.Printf("Starting crawler for: %s", args.RootUrl)
 
 	rootUrl, err := url.Parse(args.RootUrl)
 	if err != nil {
-		log.Fatalf("[ERROR] url %s is not valid: %v", args.RootUrl, err)
+		return fmt.Errorf("[ERROR] failed to parse url %s: %w", args.RootUrl, err)
 	}
 
 	if err := ValidateUrl(rootUrl); err != nil {
-		log.Fatalf("[ERROR] %v", err)
+		return fmt.Errorf("[ERROR] url %s is not valid : %w", args.RootUrl, err)
 	}
 
 	extractions := []UrlExtractionResult{}
@@ -44,24 +40,24 @@ func StartCrawlerEngine(args cli.CrawlerFlags) {
 	var extractionMtx sync.Mutex
 	var visitedMtx sync.Mutex
 
-	extractionJobs := make(chan extractionJob, args.Workers)
-	extractionResults := make(chan UrlExtractionResult, args.Workers)
+	extractionJobsQueue := make(chan ExtractionJob, args.Workers)
+	extractionResultsQueue := make(chan UrlExtractionResult, args.Workers)
 
 	for range args.Workers {
-		go nodesExtractionWorker(extractionJobs, extractionResults)
+		go nodesExtractionWorker(ctx, extractionJobsQueue, extractionResultsQueue)
 	}
 
 	var wg sync.WaitGroup
 
-	enqueueJob := func(curUrl *url.URL, parentUrl *url.URL, depth int) {
+	enqueueExtractionJob := func(curUrl *url.URL, parentUrl *url.URL, depth int) {
 		wg.Add(1)
 		go func() {
-			extractionJobs <- extractionJob{curUrl, parentUrl, depth}
+			extractionJobsQueue <- ExtractionJob{curUrl, parentUrl, depth}
 		}()
 	}
 
 	go func() {
-		for result := range extractionResults {
+		for result := range extractionResultsQueue {
 			visitedMtx.Lock()
 			if visited[result.url.String()] {
 				visitedMtx.Unlock()
@@ -92,7 +88,7 @@ func StartCrawlerEngine(args cli.CrawlerFlags) {
 				visitedMtx.Lock()
 				if !visited[resolvedUrl.String()] && result.depth < args.Depth {
 					visited[resolvedUrl.String()] = true
-					enqueueJob(resolvedUrl, result.url, result.depth+1)
+					enqueueExtractionJob(resolvedUrl, result.url, result.depth+1)
 				}
 				visitedMtx.Unlock()
 			}
@@ -100,82 +96,49 @@ func StartCrawlerEngine(args cli.CrawlerFlags) {
 		}
 	}()
 
-	enqueueJob(rootUrl, nil, 0)
+	enqueueExtractionJob(rootUrl, nil, 0)
 
 	wg.Wait()
-	close(extractionJobs)
-	close(extractionResults)
+	close(extractionJobsQueue)
+	close(extractionResultsQueue)
+
 	fmt.Println("Results: ", extractions)
+	return nil
 }
 
-func extractPageNodes(pageUrl *url.URL) (NodesByTag, error) {
-	resp, err := http.Get(pageUrl.String())
-	if err != nil {
-		return nil, fmt.Errorf("Failed to request html page for url %v: %w", pageUrl.String(), err)
-	}
-	defer resp.Body.Close()
+func Bootstrap(args cli.CrawlerFlags) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	defer perf.TimeTrack(time.Now(), "Bootstrap")
 
-	if handler, ok := statusHandlers[resp.StatusCode]; ok {
-		if err := handler(pageUrl); err != nil {
-			return nil, fmt.Errorf("Failed to parse html page for url %v: %w", pageUrl.String(), err)
+	if err := runCrawler(ctx, args); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			log.Print("Timer exceeded timeout")
+			return
 		}
+		log.Printf("[ERROR] %v", err)
 	}
+}
 
-	doc, err := html.Parse(resp.Body)
-	if err != nil {
-		log.Fatal("[ERROR] Failed to parse html body. Exiting program")
-		return nil, fmt.Errorf("Failed to parse html page for url %v: %w", pageUrl.String(), err)
-	}
+func nodesExtractionWorker(ctx context.Context, extractionJobQueue <-chan ExtractionJob, extractionResultQueue chan<- UrlExtractionResult) {
+	for job := range extractionJobQueue {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			log.Printf("Extracting nodes from %v", job.Url.String())
 
-	extractors := []DOMExtractor{
-		NewDOMNodesExtractor(NodeExtractorTypeA),
-		NewDOMNodesExtractor(NodeExtractorTypeH1),
-		NewDOMNodesExtractor(NodeExtractorTypeDiv),
-		NewDOMNodesExtractor(NodeExtractorTypeH2),
-		NewDOMNodesExtractor(NodeExtractorTypeP),
-	}
+			nodes, err := extractPageNodes(ctx, job.Url)
 
-	type result struct {
-		key   string
-		nodes []*html.Node
-	}
-
-	extractions := make(chan result, len(extractors))
-
-	for _, e := range extractors {
-		// passing "e" as argument prevents race condition
-		go func(e DOMExtractor) {
-			log.Printf("Extracting dom nodes for <%v> element", e.Type)
-			extractions <- result{
-				key:   e.Type,
-				nodes: e.ExtractNodes(doc),
+			result := UrlExtractionResult{
+				extractedNodes: nodes,
+				url:            job.Url,
+				parentUrl:      job.ParentUrl,
+				error:          err,
+				depth:          job.depth,
 			}
-		}(e)
-	}
 
-	nodesByExtractionType := make(NodesByTag)
-	for range extractors {
-		r := <-extractions
-		nodesByExtractionType[r.key] = r.nodes
-	}
-
-	return nodesByExtractionType, nil
-}
-
-func nodesExtractionWorker(extractionQueue <-chan extractionJob, extractionResult chan<- UrlExtractionResult) {
-	for job := range extractionQueue {
-		log.Printf("Extracting nodes from %v", job.Url.String())
-
-		nodes, err := extractPageNodes(job.Url)
-
-		result := UrlExtractionResult{
-			extractedNodes: nodes,
-			url:            job.Url,
-			parentUrl:      job.ParentUrl,
-			error:          err,
-			depth:          job.depth,
+			extractionResultQueue <- result
 		}
-
-		extractionResult <- result
 	}
 }
