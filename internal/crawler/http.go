@@ -5,7 +5,7 @@ import (
 	"net/url"
 )
 
-func ValidateUrl(u *url.URL) error {
+func ValidateURL(u *url.URL) error {
 	switch {
 	case u.Host == "":
 		return fmt.Errorf("url host should not be empty")
@@ -14,4 +14,17 @@ func ValidateUrl(u *url.URL) error {
 	}
 
 	return nil
+}
+
+func ParseAndValidateURL(rawUrl string) (*url.URL, error) {
+	parsedUrl, err := url.Parse(rawUrl)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse url %s: %w", rawUrl, err)
+	}
+
+	if err := ValidateURL(parsedUrl); err != nil {
+		return nil, fmt.Errorf("url %s is not valid : %w", rawUrl, err)
+	}
+
+	return parsedUrl, nil
 }

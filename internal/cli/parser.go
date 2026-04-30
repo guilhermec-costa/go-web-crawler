@@ -4,8 +4,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
+	"time"
 )
 
 type CrawlerFlags struct {
@@ -39,7 +40,9 @@ func ParseCrawlerFlags() (CrawlerFlags, error) {
 	depthFlag := flag.Int("depth", 1, "depth for crawling")
 	workersFlag := flag.Int("workers", 3, "Workers number for concurrent crawling")
 	verboseFlag := flag.Bool("v", false, "run crawler on verbose mode")
-	outputPathFlag := flag.String("o", "./extractions", "output path")
+
+	defaultPath := fmt.Sprintf("extractions-%s.jsonl", time.Now().Format("2006-01-02_15-04-05"))
+	outputPathFlag := flag.String("o", defaultPath, "output path")
 
 	flag.Parse()
 
@@ -48,20 +51,19 @@ func ParseCrawlerFlags() (CrawlerFlags, error) {
 	}
 
 	return CrawlerFlags{
-		RootUrl: *urlFlag,
-		Depth:   *depthFlag,
-		Workers: *workersFlag,
-		Verbose: *verboseFlag,
+		RootUrl:    *urlFlag,
+		Depth:      *depthFlag,
+		Workers:    *workersFlag,
+		Verbose:    *verboseFlag,
 		OutputPath: *outputPathFlag,
 	}, nil
 }
 
 func ShowCrawlerConfigs(flags CrawlerFlags) {
-	log.Printf(
-		"Using URL: %s | Depth: %d | Workers: %d | Verbose: %v\n",
-		flags.RootUrl,
-		flags.Depth,
-		flags.Workers,
-		flags.Verbose,
+	slog.Info("crawler config",
+		"url", flags.RootUrl,
+		"depth", flags.Depth,
+		"workers", flags.Workers,
+		"verbose", flags.Verbose,
 	)
 }

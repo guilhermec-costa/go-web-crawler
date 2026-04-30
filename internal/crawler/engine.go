@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"guilhermec-costa/go-web-crawler/internal/cli"
 	"guilhermec-costa/go-web-crawler/internal/perf"
 	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/html"
@@ -48,23 +49,31 @@ func (r UrlExtractionResult) ToJSON() UrlExtractionResultJSON {
 
 const verboseKey = "verbose"
 
-func validateRawUrl(rawUrl string) (*url.URL, error) {
-	parsedUrl, err := url.Parse(rawUrl)
-	if err != nil {
-		return nil, fmt.Errorf("[ERROR] failed to parse url %s: %w", rawUrl, err)
-	}
-
-	if err := ValidateUrl(parsedUrl); err != nil {
-		return nil, fmt.Errorf("[ERROR] url %s is not valid : %w", rawUrl, err)
-	}
-
-	return parsedUrl, nil
+type TickerMetadata struct {
+	processedNodes atomic.Int64
 }
 
 func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
-	log.Printf("Starting crawler for: %s", args.RootUrl)
+	start := time.Now()
+	slog.Info("Starting crawler", "url", args.RootUrl)
 
-	rootUrl, err := validateRawUrl(args.RootUrl)
+	procUpdtTicker := time.NewTicker(2 * time.Second)
+	tickerDone := make(chan struct{})
+	tickerMetadata := TickerMetadata{}
+
+	go func() {
+		for {
+			select {
+			case <-tickerDone:
+				return
+			case <-procUpdtTicker.C:
+				slog.Info("ticker update", "elapsed", time.Since(start),
+					"processed_nodes", tickerMetadata.processedNodes.Load())
+			}
+		}
+	}()
+
+	rootUrl, err := ParseAndValidateURL(args.RootUrl)
 	if err != nil {
 		return err
 	}
@@ -97,6 +106,7 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
 
 	go func() {
 		for result := range extractionResultsQueue {
@@ -115,6 +125,10 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 			extractions = append(extractions, result)
 			extractionMtx.Unlock()
 
+			for _, data := range result.ExtractedNodes {
+				tickerMetadata.processedNodes.Add(int64(data.Count))
+			}
+
 			for _, node := range result.ExtractedNodes[NodeExtractorTypeA].Nodes {
 				link := GetAttrValueFromNode(node, "href")
 				if link == nil || *link == "" || *link == "#" {
@@ -123,7 +137,7 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 
 				parsedUrl, err := url.Parse(*link)
 				if err != nil {
-					log.Printf("[ERROR] Failed to parse link from node %v", node)
+					slog.Error("failed to parse link from node", "node", node)
 					continue
 				}
 
@@ -142,15 +156,16 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 
 	enqueueExtractionJob(rootUrl, nil, 0)
 
-	done := make(chan struct{})
+	nodeExtractionDone := make(chan struct{})
 	go func() {
 		wg.Wait()
-		close(done)
+		close(nodeExtractionDone)
 	}()
 
 	// checks which channel closes first
 	select {
-	case <-done:
+	case <-nodeExtractionDone:
+		tickerDone <- struct{}{}
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -158,19 +173,23 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 	close(extractionJobsQueue)
 	close(extractionResultsQueue)
 
+	slog.Info("final result", "node_count", tickerMetadata.processedNodes.Load())
 	return nil
 
 }
 
 func setupOutputDir() {
-	createErr := os.Mkdir("../output", 0755)
-	if createErr != nil {
-		if errors.Is(createErr, os.ErrExist) {
-			log.Printf("Directory already exist")
-		} else {
-			panic(createErr)
-		}
+	if err := os.MkdirAll("../output", 0o755); err != nil {
+		slog.Error("failed to create output directory",
+			"path", "../output",
+			"err", err,
+		)
+		panic(err)
 	}
+
+	slog.Info("output directory ready",
+		"path", "../output",
+	)
 }
 
 func Bootstrap(args cli.CrawlerFlags) {
@@ -185,6 +204,6 @@ func Bootstrap(args cli.CrawlerFlags) {
 			log.Print("Timer exceeded timeout")
 			return
 		}
-		log.Printf("[ERROR] %v", err)
+		slog.Error("could not complete crawling", "err", err)
 	}
 }

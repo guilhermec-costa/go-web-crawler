@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sync"
@@ -95,18 +96,29 @@ func (r UrlExtractionResult) String() string {
 func extractPageNodes(ctx context.Context, pageUrl *url.URL) (NodesByTag, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", pageUrl.String(), nil)
 	if err != nil {
+		slog.Error("failed to create request", "url", pageUrl, "error", err)
 		return nil, fmt.Errorf("failed to create request for url %s: %w", pageUrl.String(), err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			slog.Error("request timeout", "url", pageUrl, "error", err)
 			return nil, fmt.Errorf("timeout requesting url %s: %w", pageUrl.String(), err)
-		}
-		if errors.Is(err, context.Canceled) {
+
+		case errors.Is(err, context.Canceled):
+			slog.Error("request canceled", "url", pageUrl, "error", err)
 			return nil, fmt.Errorf("request canceled for url %s: %w", pageUrl.String(), err)
+
+		default:
+			if urlErr, ok := errors.AsType[*url.Error](err); ok {
+				slog.Error("url error", "op", urlErr.Op, "url", urlErr.URL, "err", urlErr.Err)
+			} else {
+				slog.Error("request failed", "url", pageUrl, "err", err)
+			}
+			return nil, fmt.Errorf("request %q: %w", pageUrl, err)
 		}
-		return nil, fmt.Errorf("failed to request url %s: %w", pageUrl.String(), err)
 	}
 
 	defer resp.Body.Close()
@@ -150,7 +162,7 @@ func extractPageNodes(ctx context.Context, pageUrl *url.URL) (NodesByTag, error)
 			go func(e DOMExtractor) {
 				defer wg.Done()
 				if v, ok := ctx.Value(verboseKey).(bool); ok && v {
-					log.Printf("Extracting dom nodes for <%v> element", e.Type)
+					slog.Info("extracing dom nodes", "element_type", e.Type)
 				}
 				extractions <- result{
 					key:   e.Type,
@@ -171,7 +183,7 @@ func extractPageNodes(ctx context.Context, pageUrl *url.URL) (NodesByTag, error)
 			struct {
 				Nodes []*html.Node
 				Count int
-			}{Nodes: r.nodes}
+			}{Nodes: r.nodes, Count: len(r.nodes)}
 	}
 
 	return nodesByExtractionType, nil
@@ -184,7 +196,7 @@ func nodesExtractionWorker(ctx context.Context, extractionJobQueue <-chan Extrac
 			return
 		default:
 			if v, ok := ctx.Value(verboseKey).(bool); ok && v {
-				log.Printf("Extracting nodes from %v", job.Url.String())
+				slog.Info("extracting nodes from url", "url", job.Url.String())
 			}
 
 			nodes, err := extractPageNodes(ctx, job.Url)

@@ -3,11 +3,15 @@ package main
 import (
 	"guilhermec-costa/go-web-crawler/internal/cli"
 	"guilhermec-costa/go-web-crawler/internal/crawler"
-	"guilhermec-costa/go-web-crawler/internal/log"
+	"log/slog"
+	"os"
 )
 
 func main() {
-	log.SetupLogger()
+	slog.SetLogLoggerLevel(slog.LevelDebug)
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
 
 	flags, err := cli.ParseCrawlerFlags()
 	if err != nil {
