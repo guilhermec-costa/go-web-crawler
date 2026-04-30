@@ -2,18 +2,24 @@ package crawler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/net/html"
 	"guilhermec-costa/go-web-crawler/internal/cli"
 	"guilhermec-costa/go-web-crawler/internal/perf"
 	"log"
 	"net/url"
+	"os"
 	"sync"
 	"time"
+
+	"golang.org/x/net/html"
 )
 
-type NodesByTag map[string][]*html.Node
+type NodesByTag map[string]struct {
+	Nodes []*html.Node
+	Count int
+}
 
 type ExtractionJob struct {
 	Url       *url.URL
@@ -21,20 +27,51 @@ type ExtractionJob struct {
 	depth     int
 }
 
+type UrlExtractionResultJSON struct {
+	Url       string         `json:"url"`
+	ParentUrl string         `json:"parentUrl"`
+	NodeCount map[string]int `json:"nodeCount"`
+}
+
+func (r UrlExtractionResult) ToJSON() UrlExtractionResultJSON {
+	counts := map[string]int{}
+	for tag, nodes := range r.ExtractedNodes {
+		counts[tag] = len(nodes.Nodes)
+	}
+
+	parentUrl := ""
+	if r.parentUrl != nil {
+		parentUrl = r.parentUrl.String()
+	}
+	return UrlExtractionResultJSON{Url: r.url.String(), ParentUrl: parentUrl, NodeCount: counts}
+}
+
+const verboseKey = "verbose"
+
+func validateRawUrl(rawUrl string) (*url.URL, error) {
+	parsedUrl, err := url.Parse(rawUrl)
+	if err != nil {
+		return nil, fmt.Errorf("[ERROR] failed to parse url %s: %w", rawUrl, err)
+	}
+
+	if err := ValidateUrl(parsedUrl); err != nil {
+		return nil, fmt.Errorf("[ERROR] url %s is not valid : %w", rawUrl, err)
+	}
+
+	return parsedUrl, nil
+}
+
 func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 	log.Printf("Starting crawler for: %s", args.RootUrl)
 
-	rootUrl, err := url.Parse(args.RootUrl)
+	rootUrl, err := validateRawUrl(args.RootUrl)
 	if err != nil {
-		return fmt.Errorf("[ERROR] failed to parse url %s: %w", args.RootUrl, err)
-	}
-
-	if err := ValidateUrl(rootUrl); err != nil {
-		return fmt.Errorf("[ERROR] url %s is not valid : %w", args.RootUrl, err)
+		return err
 	}
 
 	extractions := []UrlExtractionResult{}
 	visited := make(map[string]bool)
+	enqueued := make(map[string]bool)
 
 	var extractionMtx sync.Mutex
 	var visitedMtx sync.Mutex
@@ -42,8 +79,9 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 	extractionJobsQueue := make(chan ExtractionJob, args.Workers)
 	extractionResultsQueue := make(chan UrlExtractionResult, args.Workers)
 
+	ctxWithVerboseFlag := context.WithValue(ctx, verboseKey, args.Verbose)
 	for range args.Workers {
-		go nodesExtractionWorker(ctx, extractionJobsQueue, extractionResultsQueue)
+		go nodesExtractionWorker(ctxWithVerboseFlag, extractionJobsQueue, extractionResultsQueue)
 	}
 
 	var wg sync.WaitGroup
@@ -55,8 +93,15 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 		}()
 	}
 
+	file, _ := os.OpenFile(args.OutputPath, os.O_CREATE|os.O_WRONLY, 0644)
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+
 	go func() {
 		for result := range extractionResultsQueue {
+			encoder.Encode(result.ToJSON())
+
 			visitedMtx.Lock()
 			if visited[result.url.String()] {
 				visitedMtx.Unlock()
@@ -70,7 +115,7 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 			extractions = append(extractions, result)
 			extractionMtx.Unlock()
 
-			for _, node := range result.extractedNodes[NodeExtractorTypeA] {
+			for _, node := range result.ExtractedNodes[NodeExtractorTypeA].Nodes {
 				link := GetAttrValueFromNode(node, "href")
 				if link == nil || *link == "" || *link == "#" {
 					continue
@@ -84,12 +129,12 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 
 				resolvedUrl := result.url.ResolveReference(parsedUrl)
 
-				visitedMtx.Lock()
-				if !visited[resolvedUrl.String()] && result.depth < args.Depth {
-					visited[resolvedUrl.String()] = true
-					enqueueExtractionJob(resolvedUrl, result.url, result.depth+1)
+				if resolvedUrl.Host == result.url.Host &&
+					!enqueued[resolvedUrl.String()] &&
+					result.Depth < args.Depth {
+					enqueued[resolvedUrl.String()] = true
+					enqueueExtractionJob(resolvedUrl, result.url, result.Depth+1)
 				}
-				visitedMtx.Unlock()
 			}
 			wg.Done()
 		}
@@ -112,14 +157,26 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 
 	close(extractionJobsQueue)
 	close(extractionResultsQueue)
-	fmt.Println("Results: ", extractions)
 
 	return nil
 
 }
 
+func setupOutputDir() {
+	createErr := os.Mkdir("../output", 0755)
+	if createErr != nil {
+		if errors.Is(createErr, os.ErrExist) {
+			log.Printf("Directory already exist")
+		} else {
+			panic(createErr)
+		}
+	}
+}
+
 func Bootstrap(args cli.CrawlerFlags) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	setupOutputDir()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	defer perf.TimeTrack(time.Now(), "Bootstrap")
 
@@ -129,28 +186,5 @@ func Bootstrap(args cli.CrawlerFlags) {
 			return
 		}
 		log.Printf("[ERROR] %v", err)
-	}
-}
-
-func nodesExtractionWorker(ctx context.Context, extractionJobQueue <-chan ExtractionJob, extractionResultQueue chan<- UrlExtractionResult) {
-	for job := range extractionJobQueue {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			log.Printf("Extracting nodes from %v", job.Url.String())
-
-			nodes, err := extractPageNodes(ctx, job.Url)
-
-			result := UrlExtractionResult{
-				extractedNodes: nodes,
-				url:            job.Url,
-				parentUrl:      job.ParentUrl,
-				error:          err,
-				depth:          job.depth,
-			}
-
-			extractionResultQueue <- result
-		}
 	}
 }

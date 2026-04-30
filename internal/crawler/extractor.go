@@ -54,21 +54,12 @@ func GetAttrValueFromNode(aElem *html.Node, attrKey string) *string {
 	return nil
 }
 
-func ReportExtractionsByTag(tags map[string][]*html.Node) {
-	log.Println("[REPORT] Extraction summary")
-	log.Println("--------------------------------")
-
-	for tag, nodes := range tags {
-		log.Printf("• %-5s → %3d nodes", tag, len(nodes))
-	}
-}
-
 type UrlExtractionResult struct {
-	extractedNodes NodesByTag
+	ExtractedNodes NodesByTag
 	url            *url.URL
 	parentUrl      *url.URL
 	error          error
-	depth          int
+	Depth          int
 }
 
 func (r UrlExtractionResult) String() string {
@@ -88,8 +79,8 @@ func (r UrlExtractionResult) String() string {
 	}
 
 	total := 0
-	for _, nodes := range r.extractedNodes {
-		total += len(nodes)
+	for _, tagMap := range r.ExtractedNodes {
+		total += len(tagMap.Nodes)
 	}
 
 	return fmt.Sprintf(
@@ -158,7 +149,9 @@ func extractPageNodes(ctx context.Context, pageUrl *url.URL) (NodesByTag, error)
 			// passing "e" as argument prevents race condition
 			go func(e DOMExtractor) {
 				defer wg.Done()
-				log.Printf("Extracting dom nodes for <%v> element", e.Type)
+				if v, ok := ctx.Value(verboseKey).(bool); ok && v {
+					log.Printf("Extracting dom nodes for <%v> element", e.Type)
+				}
 				extractions <- result{
 					key:   e.Type,
 					nodes: e.ExtractNodes(doc),
@@ -174,8 +167,37 @@ func extractPageNodes(ctx context.Context, pageUrl *url.URL) (NodesByTag, error)
 
 	nodesByExtractionType := make(NodesByTag)
 	for r := range extractions {
-		nodesByExtractionType[r.key] = r.nodes
+		nodesByExtractionType[r.key] =
+			struct {
+				Nodes []*html.Node
+				Count int
+			}{Nodes: r.nodes}
 	}
 
 	return nodesByExtractionType, nil
+}
+
+func nodesExtractionWorker(ctx context.Context, extractionJobQueue <-chan ExtractionJob, extractionResultQueue chan<- UrlExtractionResult) {
+	for job := range extractionJobQueue {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			if v, ok := ctx.Value(verboseKey).(bool); ok && v {
+				log.Printf("Extracting nodes from %v", job.Url.String())
+			}
+
+			nodes, err := extractPageNodes(ctx, job.Url)
+
+			result := UrlExtractionResult{
+				ExtractedNodes: nodes,
+				url:            job.Url,
+				parentUrl:      job.ParentUrl,
+				error:          err,
+				Depth:          job.depth,
+			}
+
+			extractionResultQueue <- result
+		}
+	}
 }

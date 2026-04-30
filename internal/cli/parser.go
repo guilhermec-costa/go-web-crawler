@@ -9,9 +9,11 @@ import (
 )
 
 type CrawlerFlags struct {
-	RootUrl     string
-	Depth   int
-	Workers int
+	RootUrl    string
+	Depth      int
+	Workers    int
+	Verbose    bool
+	OutputPath string
 }
 
 func (f CrawlerFlags) String() string {
@@ -36,6 +38,8 @@ func ParseCrawlerFlags() (CrawlerFlags, error) {
 	urlFlag := flag.String("url", "", "url for crawling")
 	depthFlag := flag.Int("depth", 1, "depth for crawling")
 	workersFlag := flag.Int("workers", 3, "Workers number for concurrent crawling")
+	verboseFlag := flag.Bool("v", false, "run crawler on verbose mode")
+	outputPathFlag := flag.String("o", "./extractions", "output path")
 
 	flag.Parse()
 
@@ -44,17 +48,20 @@ func ParseCrawlerFlags() (CrawlerFlags, error) {
 	}
 
 	return CrawlerFlags{
-		RootUrl:     *urlFlag,
+		RootUrl: *urlFlag,
 		Depth:   *depthFlag,
 		Workers: *workersFlag,
+		Verbose: *verboseFlag,
+		OutputPath: *outputPathFlag,
 	}, nil
 }
 
 func ShowCrawlerConfigs(flags CrawlerFlags) {
 	log.Printf(
-		"Using URL: %s | Depth: %d | Workers: %d\n",
+		"Using URL: %s | Depth: %d | Workers: %d | Verbose: %v\n",
 		flags.RootUrl,
 		flags.Depth,
 		flags.Workers,
+		flags.Verbose,
 	)
 }
