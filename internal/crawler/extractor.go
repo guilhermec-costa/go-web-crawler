@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/net/html"
 	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"sync"
-
-	"golang.org/x/net/html"
+	"sync/atomic"
 )
 
 func extractNodesOfType(rootNode *html.Node, nodeType string) []*html.Node {
@@ -93,13 +92,14 @@ func (r UrlExtractionResult) String() string {
 	)
 }
 
-func extractPageNodes(ctx context.Context, pageUrl *url.URL) (NodesByTag, error) {
+func extractPageNodes(ctx context.Context, pageUrl *url.URL, rateLimiter *RateLimiter) (NodesByTag, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", pageUrl.String(), nil)
 	if err != nil {
 		slog.Error("failed to create request", "url", pageUrl, "error", err)
 		return nil, fmt.Errorf("failed to create request for url %s: %w", pageUrl.String(), err)
 	}
 
+	rateLimiter.Wait()
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		switch {
@@ -143,63 +143,41 @@ func extractPageNodes(ctx context.Context, pageUrl *url.URL) (NodesByTag, error)
 		NewDOMNodesExtractor(NodeExtractorTypeP),
 	}
 
-	type result struct {
-		key   string
-		nodes []*html.Node
-	}
-
-	extractions := make(chan result, len(extractors))
-	var wg sync.WaitGroup
-
-	for _, e := range extractors {
-		select {
-		case <-ctx.Done():
-			continue
-
-		default:
-			wg.Add(1)
-			// passing "e" as argument prevents race condition
-			go func(e DOMExtractor) {
-				defer wg.Done()
-				if v, ok := ctx.Value(verboseKey).(bool); ok && v {
-					slog.Info("extracing dom nodes", "element_type", e.Type)
-				}
-				extractions <- result{
-					key:   e.Type,
-					nodes: e.ExtractNodes(doc),
-				}
-			}(e)
-		}
-	}
-
-	go func() {
-		wg.Wait()
-		close(extractions)
-	}()
-
 	nodesByExtractionType := make(NodesByTag)
-	for r := range extractions {
-		nodesByExtractionType[r.key] =
-			struct {
-				Nodes []*html.Node
-				Count int
-			}{Nodes: r.nodes, Count: len(r.nodes)}
+	for _, e := range extractors {
+		nodes := e.ExtractNodes(doc)
+		nodesByExtractionType[e.Type] = NodeData{Nodes: nodes, Count: len(nodes)}
 	}
 
 	return nodesByExtractionType, nil
 }
 
-func nodesExtractionWorker(ctx context.Context, extractionJobQueue <-chan ExtractionJob, extractionResultQueue chan<- UrlExtractionResult) {
+type WorkerDeps struct {
+	verbose       bool
+	activeWorkers *atomic.Int32
+	rateLimiter   *RateLimiter
+}
+
+type ExtractionJob struct {
+	Url       *url.URL
+	ParentUrl *url.URL
+	depth     int
+}
+
+func nodesExtractionWorker(ctx context.Context, extractionJobQueue <-chan ExtractionJob, extractionResultQueue chan<- UrlExtractionResult, deps WorkerDeps) {
+	deps.activeWorkers.Add(1)
+	defer deps.activeWorkers.Add(-1)
+
 	for job := range extractionJobQueue {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			if v, ok := ctx.Value(verboseKey).(bool); ok && v {
+			if deps.verbose {
 				slog.Info("extracting nodes from url", "url", job.Url.String())
 			}
 
-			nodes, err := extractPageNodes(ctx, job.Url)
+			nodes, err := extractPageNodes(ctx, job.Url, deps.rateLimiter)
 
 			result := UrlExtractionResult{
 				ExtractedNodes: nodes,

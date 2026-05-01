@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"guilhermec-costa/go-web-crawler/internal/cli"
 	"guilhermec-costa/go-web-crawler/internal/perf"
 	"log"
@@ -17,16 +18,12 @@ import (
 	"golang.org/x/net/html"
 )
 
-type NodesByTag map[string]struct {
+type NodeData struct {
 	Nodes []*html.Node
 	Count int
 }
 
-type ExtractionJob struct {
-	Url       *url.URL
-	ParentUrl *url.URL
-	depth     int
-}
+type NodesByTag map[string]NodeData
 
 type UrlExtractionResultJSON struct {
 	Url       string         `json:"url"`
@@ -48,27 +45,45 @@ func (r UrlExtractionResult) ToJSON() UrlExtractionResultJSON {
 }
 
 const verboseKey = "verbose"
+const activeWorkerKey = "active_workers"
 
 type TickerMetadata struct {
-	processedNodes atomic.Int64
+	start           time.Time
+	processedNodes  atomic.Int64
+	errors          atomic.Int64
+	activeWorkers   atomic.Int32
+	rateLimitBufLen int
 }
+
+func showTickerData(tickerMetadata *TickerMetadata) {
+	slog.Info("ticker update", "elapsed", time.Since(tickerMetadata.start),
+		"processed_nodes", tickerMetadata.processedNodes.Load(),
+		"errors", tickerMetadata.errors.Load(),
+		"active_workers", tickerMetadata.activeWorkers.Load(),
+		"rate_limite_buf_len", tickerMetadata.rateLimitBufLen)
+}
+
+const RateLimiterBurstRate = 100
 
 func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 	start := time.Now()
 	slog.Info("Starting crawler", "url", args.RootUrl)
 
-	procUpdtTicker := time.NewTicker(2 * time.Second)
+	procUpdtTicker := time.NewTicker(time.Duration(args.TickUpdateMs) * time.Millisecond)
 	tickerDone := make(chan struct{})
-	tickerMetadata := TickerMetadata{}
+	tickerMetadata := TickerMetadata{start: start}
+
+	rateLimiter := NewRateLimiter(ctx, RateLimiterBurstRate, 1000*time.Millisecond)
 
 	go func() {
 		for {
 			select {
 			case <-tickerDone:
+				procUpdtTicker.Stop()
 				return
 			case <-procUpdtTicker.C:
-				slog.Info("ticker update", "elapsed", time.Since(start),
-					"processed_nodes", tickerMetadata.processedNodes.Load())
+				tickerMetadata.rateLimitBufLen = rateLimiter.TokenCount()
+				showTickerData(&tickerMetadata)
 			}
 		}
 	}()
@@ -78,19 +93,20 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 		return err
 	}
 
-	extractions := []UrlExtractionResult{}
 	visited := make(map[string]bool)
 	enqueued := make(map[string]bool)
 
-	var extractionMtx sync.Mutex
 	var visitedMtx sync.Mutex
 
 	extractionJobsQueue := make(chan ExtractionJob, args.Workers)
 	extractionResultsQueue := make(chan UrlExtractionResult, args.Workers)
 
-	ctxWithVerboseFlag := context.WithValue(ctx, verboseKey, args.Verbose)
 	for range args.Workers {
-		go nodesExtractionWorker(ctxWithVerboseFlag, extractionJobsQueue, extractionResultsQueue)
+		go nodesExtractionWorker(ctx, extractionJobsQueue, extractionResultsQueue, WorkerDeps{
+			verbose:       args.Verbose,
+			activeWorkers: &tickerMetadata.activeWorkers,
+			rateLimiter:   rateLimiter,
+		})
 	}
 
 	var wg sync.WaitGroup
@@ -98,11 +114,16 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 	enqueueExtractionJob := func(curUrl *url.URL, parentUrl *url.URL, depth int) {
 		wg.Add(1)
 		go func() {
+			// allow quick enqueue, so the main goroutine don't get stucked
 			extractionJobsQueue <- ExtractionJob{curUrl, parentUrl, depth}
 		}()
 	}
 
-	file, _ := os.OpenFile(args.OutputPath, os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(args.OutputPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open output file: %w", err)
+	}
+
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
@@ -110,8 +131,6 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 
 	go func() {
 		for result := range extractionResultsQueue {
-			encoder.Encode(result.ToJSON())
-
 			visitedMtx.Lock()
 			if visited[result.url.String()] {
 				visitedMtx.Unlock()
@@ -121,12 +140,14 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 			visited[result.url.String()] = true
 			visitedMtx.Unlock()
 
-			extractionMtx.Lock()
-			extractions = append(extractions, result)
-			extractionMtx.Unlock()
+			encoder.Encode(result.ToJSON())
 
 			for _, data := range result.ExtractedNodes {
 				tickerMetadata.processedNodes.Add(int64(data.Count))
+			}
+
+			if result.error != nil {
+				tickerMetadata.errors.Add(1)
 			}
 
 			for _, node := range result.ExtractedNodes[NodeExtractorTypeA].Nodes {
@@ -165,6 +186,8 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 	// checks which channel closes first
 	select {
 	case <-nodeExtractionDone:
+		slog.Info("final ticker update after extraction completion")
+		showTickerData(&tickerMetadata)
 		tickerDone <- struct{}{}
 	case <-ctx.Done():
 		return ctx.Err()
@@ -172,30 +195,12 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 
 	close(extractionJobsQueue)
 	close(extractionResultsQueue)
-
-	slog.Info("final result", "node_count", tickerMetadata.processedNodes.Load())
 	return nil
 
 }
 
-func setupOutputDir() {
-	if err := os.MkdirAll("../output", 0o755); err != nil {
-		slog.Error("failed to create output directory",
-			"path", "../output",
-			"err", err,
-		)
-		panic(err)
-	}
-
-	slog.Info("output directory ready",
-		"path", "../output",
-	)
-}
-
 func Bootstrap(args cli.CrawlerFlags) {
-	setupOutputDir()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), (time.Duration(args.TimeoutMs))*time.Millisecond)
 	defer cancel()
 	defer perf.TimeTrack(time.Now(), "Bootstrap")
 
