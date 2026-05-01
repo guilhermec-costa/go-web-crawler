@@ -2,6 +2,7 @@ package crawler
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 )
 
@@ -27,4 +28,39 @@ func ParseAndValidateURL(rawUrl string) (*url.URL, error) {
 	}
 
 	return parsedUrl, nil
+}
+
+type StatusInfo struct {
+	Message   string
+	Retryable bool
+}
+
+var statusInfoMap = map[int]StatusInfo{
+	http.StatusForbidden: {
+		Message:   "not allowed to crawl url",
+		Retryable: false,
+	},
+	http.StatusNotFound: {
+		Message:   "url page does not exist",
+		Retryable: false,
+	},
+	http.StatusInternalServerError: {
+		Message:   "internal server error",
+		Retryable: true,
+	},
+	http.StatusTooManyRequests: {
+		Message:   "rate limited by server",
+		Retryable: true,
+	},
+	http.StatusGatewayTimeout: {
+		Message:   "gateway timeout",
+		Retryable: true,
+	},
+}
+
+func getStatusInfo(statusCode int) StatusInfo {
+	if info, ok := statusInfoMap[statusCode]; ok {
+		return info
+	}
+	return StatusInfo{Message: "unexpected status code", Retryable: false}
 }

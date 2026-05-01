@@ -2,24 +2,12 @@ package crawler
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"math/rand/v2"
 	"net/http"
 	"time"
 )
-
-func IsRetryableReq(resp *http.Response) bool {
-	switch resp.StatusCode {
-	case
-		http.StatusTooManyRequests,
-		http.StatusInternalServerError,
-		http.StatusRequestTimeout,
-		http.StatusGatewayTimeout:
-		return true
-	default:
-		return false
-	}
-}
 
 type RetryConfig struct {
 	maxRetries    int
@@ -40,15 +28,16 @@ func WithRetry(retryConfig RetryConfig, fn func() (*http.Response, error)) (*htt
 			return resp, nil
 		}
 
-		if !IsRetryableReq(resp) {
+		statusInfo := getStatusInfo(resp.StatusCode)
+		slog.Info("request failed", "status_code", resp.StatusCode, "message", statusInfo.Message, "attempt", r+1)
+
+		if !statusInfo.Retryable {
 			return resp, fmt.Errorf("not retryable: %d", resp.StatusCode)
 		}
 
-		delay := retryConfig.baseDelay * time.Duration(math.Pow(retryConfig.multiplier, float64(r)))
-
 		jitter := rand.Int32N(retryConfig.jitterMaxRand)
 		jitterTime := time.Duration(jitter * int32(time.Millisecond))
-
+		delay := retryConfig.baseDelay * time.Duration(math.Pow(retryConfig.multiplier, float64(r)))
 		<-time.After(delay + jitterTime)
 	}
 
