@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"golang.org/x/net/html"
-	"log"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"sync/atomic"
+	"time"
+
+	"golang.org/x/net/html"
 )
 
 func extractNodesOfType(rootNode *html.Node, nodeType string) []*html.Node {
@@ -54,6 +55,13 @@ func GetAttrValueFromNode(aElem *html.Node, attrKey string) *string {
 	return nil
 }
 
+type NodeData struct {
+	Nodes []*html.Node
+	Count int
+}
+
+type NodesByTag map[string]NodeData
+
 type UrlExtractionResult struct {
 	ExtractedNodes NodesByTag
 	url            *url.URL
@@ -92,47 +100,70 @@ func (r UrlExtractionResult) String() string {
 	)
 }
 
-func extractPageNodes(ctx context.Context, pageUrl *url.URL, rateLimiter *RateLimiter) (NodesByTag, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", pageUrl.String(), nil)
-	if err != nil {
-		slog.Error("failed to create request", "url", pageUrl, "error", err)
-		return nil, fmt.Errorf("failed to create request for url %s: %w", pageUrl.String(), err)
+func checkForCtxErr(err error, pageUrl *url.URL) error {
+	if err == nil {
+		return nil
 	}
 
-	rateLimiter.Wait()
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		switch {
-		case errors.Is(err, context.DeadlineExceeded):
-			slog.Error("request timeout", "url", pageUrl, "error", err)
-			return nil, fmt.Errorf("timeout requesting url %s: %w", pageUrl.String(), err)
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		slog.Error("request timeout", "url", pageUrl, "error", err)
+		return fmt.Errorf("timeout requesting url %s: %w", pageUrl.String(), err)
 
-		case errors.Is(err, context.Canceled):
-			slog.Error("request canceled", "url", pageUrl, "error", err)
-			return nil, fmt.Errorf("request canceled for url %s: %w", pageUrl.String(), err)
+	case errors.Is(err, context.Canceled):
+		slog.Error("request canceled", "url", pageUrl, "error", err)
+		return fmt.Errorf("request canceled for url %s: %w", pageUrl.String(), err)
 
-		default:
-			if urlErr, ok := errors.AsType[*url.Error](err); ok {
-				slog.Error("url error", "op", urlErr.Op, "url", urlErr.URL, "err", urlErr.Err)
-			} else {
-				slog.Error("request failed", "url", pageUrl, "err", err)
-			}
-			return nil, fmt.Errorf("request %q: %w", pageUrl, err)
+	default:
+		if urlErr, ok := errors.AsType[*url.Error](err); ok {
+			slog.Error("url error", "op", urlErr.Op, "url", urlErr.URL, "err", urlErr.Err)
+		} else {
+			slog.Error("request failed", "url", pageUrl, "err", err)
 		}
+		return fmt.Errorf("request %q: %w", pageUrl, err)
+	}
+}
+
+func is2xx(resp *http.Response) bool {
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+var retryConfig = RetryConfig{
+	maxRetries:    3,
+	baseDelay:     time.Duration(700 * time.Millisecond),
+	jitterMaxRand: 100,
+	multiplier:    2,
+}
+
+func extractPageNodes(ctx context.Context, pageUrl *url.URL, rateLimiter *RateLimiter) (NodesByTag, error) {
+	resp, err := WithRetry(retryConfig, func() (*http.Response, error) {
+		req, reqErr := http.NewRequestWithContext(ctx, "GET", pageUrl.String(), nil)
+		if reqErr != nil {
+			slog.Error("failed to create request", "url", pageUrl, "error", reqErr)
+			return nil, fmt.Errorf("failed to create request for url %s: %w", pageUrl.String(), reqErr)
+		}
+
+		rateLimiter.Wait()
+		resp, respErr := http.DefaultClient.Do(req)
+
+		if ctxErr := checkForCtxErr(respErr, pageUrl); ctxErr != nil {
+			return nil, ctxErr
+		}
+
+		return resp, respErr
+	})
+
+	if err != nil {
+		slog.Error("failed to extract page nodes", "err", err)
+		return nil, err
 	}
 
 	defer resp.Body.Close()
 
-	if handler, ok := statusHandlers[resp.StatusCode]; ok {
-		if err := handler(pageUrl); err != nil {
-			return nil, fmt.Errorf("Failed to parse html page for url %v: %w", pageUrl.String(), err)
-		}
-	}
-
-	doc, err := html.Parse(resp.Body)
-	if err != nil {
-		log.Fatal("[ERROR] Failed to parse html body. Exiting program")
-		return nil, fmt.Errorf("Failed to parse html page for url %v: %w", pageUrl.String(), err)
+	doc, reqErr := html.Parse(resp.Body)
+	if reqErr != nil {
+		slog.Error("failed to parse html body", "url", pageUrl, "err", reqErr)
+		return nil, fmt.Errorf("failed to parse html page for url %v: %w", pageUrl.String(), reqErr)
 	}
 
 	extractors := []DOMExtractor{

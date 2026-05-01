@@ -14,16 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"golang.org/x/net/html"
 )
-
-type NodeData struct {
-	Nodes []*html.Node
-	Count int
-}
-
-type NodesByTag map[string]NodeData
 
 type UrlExtractionResultJSON struct {
 	Url       string         `json:"url"`
