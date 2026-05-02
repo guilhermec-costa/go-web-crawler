@@ -35,9 +35,6 @@ func (r UrlExtractionResult) ToJSON() UrlExtractionResultJSON {
 	return UrlExtractionResultJSON{Url: r.url.String(), ParentUrl: parentUrl, NodeCount: counts}
 }
 
-const verboseKey = "verbose"
-const activeWorkerKey = "active_workers"
-
 type TickerMetadata struct {
 	start           time.Time
 	processedNodes  atomic.Int64
@@ -89,8 +86,8 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 
 	var visitedMtx sync.Mutex
 
-	extractionJobsQueue := make(chan ExtractionJob, args.Workers)
-	extractionResultsQueue := make(chan UrlExtractionResult, args.Workers)
+	extractionJobsQueue := make(chan ExtractionJob, args.Workers * 10)
+	extractionResultsQueue := make(chan UrlExtractionResult, args.Workers * 10)
 
 	for range args.Workers {
 		go nodesExtractionWorker(ctx, extractionJobsQueue, extractionResultsQueue, WorkerDeps{

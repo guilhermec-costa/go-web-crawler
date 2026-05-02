@@ -1,9 +1,11 @@
 package crawler
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -137,7 +139,10 @@ var retryConfig = RetryConfig{
 
 func extractPageNodes(ctx context.Context, pageUrl *url.URL, rateLimiter *RateLimiter) (NodesByTag, error) {
 	resp, err := WithRetry(retryConfig, func() (*http.Response, error) {
-		req, reqErr := http.NewRequestWithContext(ctx, "GET", pageUrl.String(), nil)
+		reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+
+		req, reqErr := http.NewRequestWithContext(reqCtx, "GET", pageUrl.String(), nil)
 		if reqErr != nil {
 			slog.Error("failed to create request", "url", pageUrl, "error", reqErr)
 			return nil, fmt.Errorf("failed to create request for url %s: %w", pageUrl.String(), reqErr)
@@ -150,6 +155,15 @@ func extractPageNodes(ctx context.Context, pageUrl *url.URL, rateLimiter *RateLi
 			return nil, ctxErr
 		}
 
+		// cancel() clears the context, but resp.Body still needs to be read outside the closure
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to read body: %w", err)
+		}
+
+		resp.Body = io.NopCloser(bytes.NewReader(body))
 		return resp, respErr
 	})
 
