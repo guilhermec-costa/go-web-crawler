@@ -13,7 +13,7 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	flags, err := cli.ParseCrawlerFlags()
+	flags, err := cli.ParseCrawlerFlags(os.Args[1:])
 	if err != nil {
 		cli.ExitWithFlagUsage(err.Error())
 	}
