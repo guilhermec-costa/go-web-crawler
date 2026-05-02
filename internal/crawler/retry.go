@@ -10,10 +10,11 @@ import (
 )
 
 type RetryConfig struct {
-	maxRetries    int
-	baseDelay     time.Duration
-	multiplier    float64
-	jitterMaxRand int32
+	maxRetries     int
+	baseDelay      time.Duration
+	multiplier     float64
+	jitterMaxRand  int32
+	requestTimeout time.Duration
 }
 
 func WithRetry(retryConfig RetryConfig, fn func() (*http.Response, error)) (*http.Response, error) {

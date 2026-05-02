@@ -130,16 +130,9 @@ func is2xx(resp *http.Response) bool {
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
-var retryConfig = RetryConfig{
-	maxRetries:    3,
-	baseDelay:     time.Duration(700 * time.Millisecond),
-	jitterMaxRand: 100,
-	multiplier:    2,
-}
-
-func extractPageNodes(ctx context.Context, pageUrl *url.URL, rateLimiter *RateLimiter) (NodesByTag, error) {
-	resp, err := WithRetry(retryConfig, func() (*http.Response, error) {
-		reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+func extractPageNodes(ctx context.Context, pageUrl *url.URL, rateLimiter *RateLimiter, cfg RetryConfig) (NodesByTag, error) {
+	resp, err := WithRetry(cfg, func() (*http.Response, error) {
+		reqCtx, cancel := context.WithTimeout(ctx, cfg.requestTimeout)
 		defer cancel()
 
 		req, reqErr := http.NewRequestWithContext(reqCtx, "GET", pageUrl.String(), nil)
@@ -209,6 +202,14 @@ type ExtractionJob struct {
 	depth     int
 }
 
+var retryConfig = RetryConfig{
+	maxRetries:     3,
+	baseDelay:      time.Duration(700 * time.Millisecond),
+	jitterMaxRand:  100,
+	multiplier:     2,
+	requestTimeout: 3 * time.Second,
+}
+
 func nodesExtractionWorker(ctx context.Context, extractionJobQueue <-chan ExtractionJob, extractionResultQueue chan<- UrlExtractionResult, deps WorkerDeps) {
 	deps.activeWorkers.Add(1)
 	defer deps.activeWorkers.Add(-1)
@@ -222,7 +223,7 @@ func nodesExtractionWorker(ctx context.Context, extractionJobQueue <-chan Extrac
 				slog.Info("extracting nodes from url", "url", job.Url.String())
 			}
 
-			nodes, err := extractPageNodes(ctx, job.Url, deps.rateLimiter)
+			nodes, err := extractPageNodes(ctx, job.Url, deps.rateLimiter, retryConfig)
 
 			result := UrlExtractionResult{
 				ExtractedNodes: nodes,
