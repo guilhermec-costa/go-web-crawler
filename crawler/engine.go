@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"guilhermec-costa/go-web-crawler/internal/cli"
-	"guilhermec-costa/go-web-crawler/internal/perf"
+	"guilhermec-costa/go-web-crawler/crawler/cli"
+	"guilhermec-costa/go-web-crawler/crawler/perf"
 	"log"
 	"log/slog"
 	"net/url"
@@ -86,8 +86,8 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 
 	var visitedMtx sync.Mutex
 
-	extractionJobsQueue := make(chan ExtractionJob, args.Workers * 10)
-	extractionResultsQueue := make(chan UrlExtractionResult, args.Workers * 10)
+	extractionJobsQueue := make(chan ExtractionJob, args.Workers*10)
+	extractionResultsQueue := make(chan UrlExtractionResult, args.Workers*10)
 
 	for range args.Workers {
 		go nodesExtractionWorker(ctx, extractionJobsQueue, extractionResultsQueue, WorkerDeps{

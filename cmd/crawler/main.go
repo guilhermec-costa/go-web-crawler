@@ -1,8 +1,8 @@
 package main
 
 import (
-	"guilhermec-costa/go-web-crawler/internal/cli"
-	"guilhermec-costa/go-web-crawler/internal/crawler"
+	"guilhermec-costa/go-web-crawler/crawler"
+	"guilhermec-costa/go-web-crawler/crawler/cli"
 	"log/slog"
 	"os"
 )
