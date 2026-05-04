@@ -2,9 +2,11 @@ module guilhermec-costa/go-web-crawler
 
 go 1.26.2
 
-require golang.org/x/net v0.53.0
-
-require github.com/go-chi/chi/v5 v5.2.5 // indirect
+require (
+	github.com/go-chi/chi/v5 v5.2.5
+	github.com/golang-jwt/jwt/v5 v5.3.1
+	golang.org/x/net v0.53.0
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect

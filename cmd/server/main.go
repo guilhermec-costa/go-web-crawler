@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"os"
 
+	"guilhermec-costa/go-web-crawler/server"
+	"guilhermec-costa/go-web-crawler/server/app"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"guilhermec-costa/go-web-crawler/server"
 )
 
 func main() {
@@ -16,14 +18,15 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	slog.Info("Starting crawler server")
+	slog.Info("Starting crawler server at port 8000")
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	server.SetupServerRoutes(r)
+	app := app.NewApp()
+	server.SetupServerRoutes(r, app)
 
 	if err := http.ListenAndServe(":8000", r); err != nil {
 		switch {

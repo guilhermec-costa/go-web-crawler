@@ -19,20 +19,45 @@ type CrawlerFlags struct {
 	TimeoutMs    int
 }
 
-type CrawlerFlagsJSON struct {
-	RootUrl string `json:"url"`
-	Depth   int    `json:"depth"`
-}
-
-func (data *CrawlerFlagsJSON) Validate() error {
+func (data *CrawlerFlags) Validate() error {
 	if len(data.RootUrl) == 0 {
+		slog.Error("url is required")
 		return fmt.Errorf("url is required")
 	}
 
 	if data.Depth < 0 {
+		slog.Error("depth must be greater than 0")
 		return fmt.Errorf("depth must be greater than  0")
 	}
+
+	if data.Workers <= 0 || data.Workers > 10 {
+		slog.Error("maximum of 10 workers allowed")
+		return fmt.Errorf("maximum of 10 workers allowed")
+	}
+
 	return nil
+}
+
+type CrawlerFlagsJSON struct {
+	RootUrl string `json:"url"`
+	Depth   int    `json:"depth"`
+	Workers int    `json:"workers"`
+}
+
+func MergeWithDefault(args CrawlerFlagsJSON) (CrawlerFlags, error) {
+	builtArgs := []string{
+		fmt.Sprintf("-url=%s", args.RootUrl),
+		fmt.Sprintf("-depth=%d", args.Depth),
+		fmt.Sprintf("-workers=%d", args.Workers),
+	}
+
+	parsedFlags, err := ParseCrawlerFlags(builtArgs)
+	if err != nil {
+		if errors.Is(err, UrlRequiredErr) {
+			return CrawlerFlags{}, fmt.Errorf("Failed to parse url: %w", err)
+		}
+	}
+	return parsedFlags, nil
 }
 
 func (f CrawlerFlags) String() string {
@@ -61,10 +86,12 @@ func DefaultArgs() CrawlerFlags {
 	}
 }
 
+var UrlRequiredErr = errors.New("-url is required")
+
 func ParseCrawlerFlags(args []string) (CrawlerFlags, error) {
 	fs := flag.NewFlagSet("crawler", flag.ContinueOnError)
 
-	fs.Usage = func() {
+	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: crawler [options]\n\n")
 		fs.PrintDefaults()
 	}
@@ -76,17 +103,11 @@ func ParseCrawlerFlags(args []string) (CrawlerFlags, error) {
 	verboseFlag := fs.Bool("v", da.Verbose, "run crawler on verbose mode")
 	tickUpdateMs := fs.Int("tickupdate", da.TickUpdateMs, "seconds between ticks")
 	timeoutMs := fs.Int("timeout", da.TimeoutMs, "seconds to timeout")
-
-	defaultPath := fmt.Sprintf("extractions-%s.jsonl", time.Now().Format("2006-01-02_15-04-05"))
-	outputPathFlag := fs.String("o", defaultPath, "output path")
+	outputPathFlag := fs.String("o", da.OutputPath, "output path")
 
 	fs.Parse(args)
 
-	if len(*urlFlag) == 0 {
-		return CrawlerFlags{}, errors.New("-url is required")
-	}
-
-	return CrawlerFlags{
+	parsedFlags := CrawlerFlags{
 		RootUrl:      *urlFlag,
 		Depth:        *depthFlag,
 		Workers:      *workersFlag,
@@ -94,7 +115,13 @@ func ParseCrawlerFlags(args []string) (CrawlerFlags, error) {
 		OutputPath:   *outputPathFlag,
 		TickUpdateMs: *tickUpdateMs,
 		TimeoutMs:    *timeoutMs,
-	}, nil
+	}
+
+	if err := parsedFlags.Validate(); err != nil {
+		return CrawlerFlags{}, err
+	}
+
+	return parsedFlags, nil
 }
 
 func ShowCrawlerConfigs(flags CrawlerFlags) {

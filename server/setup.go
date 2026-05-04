@@ -1,18 +1,29 @@
 package server
 
 import (
+	"guilhermec-costa/go-web-crawler/server/app"
+	pres "guilhermec-costa/go-web-crawler/server/presentation"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 )
 
-func crawlerRouter() http.Handler {
+func crawlerRouter(c *pres.Controllers) http.Handler {
 	r := chi.NewRouter()
-	r.Post("/", startCrawlerJob)
+	r.Use(pres.AuthMiddleware)
+	r.Post("/", pres.JsonHandler(c.TriggerCrawlerJobController))
 	return r
 }
 
-func SetupServerRoutes(rootRouter *chi.Mux) {
-	rootRouter.Get("/health", health)
-	rootRouter.Mount("/crawls", crawlerRouter())
+func authRouter(c *pres.Controllers) http.Handler {
+	r := chi.NewRouter()
+	r.Post("/login", pres.JsonHandler(c.LoginController))
+	return r
+}
+
+func SetupServerRoutes(rootRouter *chi.Mux, app *app.App) {
+	c := pres.NewControllers(app)
+	rootRouter.Get("/health", pres.JsonHandler(c.HealthController))
+	rootRouter.Mount("/auth", authRouter(c))
+	rootRouter.Mount("/crawls", crawlerRouter(c))
 }
