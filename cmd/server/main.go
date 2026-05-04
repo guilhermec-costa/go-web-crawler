@@ -2,35 +2,30 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"guilhermec-costa/go-web-crawler/server"
 )
-
-func startCrawlingJob(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(200)
-	fmt.Fprintf(w, "Job started\n")
-}
-
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Print("Logging in the middleware\n")
-		next.ServeHTTP(w, r)
-	})
-}
 
 func main() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /crawls", startCrawlingJob)
+	slog.Info("Starting crawler server")
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
 
-	loggedMux := loggingMiddleware(mux)
+	server.SetupServerRoutes(r)
 
-	if err := http.ListenAndServe(":8000", loggedMux); err != nil {
+	if err := http.ListenAndServe(":8000", r); err != nil {
 		switch {
 		case errors.Is(err, http.ErrServerClosed):
 			{

@@ -21,7 +21,7 @@ func TestShouldReturnDefaultArgs(t *testing.T) {
 		"-url=" + url,
 	})
 
-	da := defaultArgs()
+	da := DefaultArgs()
 	assert.NoError(t, err)
 	assert.Equal(t, flags.RootUrl, url)
 	assert.Equal(t, flags.Depth, da.Depth)

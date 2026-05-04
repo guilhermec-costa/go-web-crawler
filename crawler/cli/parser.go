@@ -19,6 +19,22 @@ type CrawlerFlags struct {
 	TimeoutMs    int
 }
 
+type CrawlerFlagsJSON struct {
+	RootUrl string `json:"url"`
+	Depth   int    `json:"depth"`
+}
+
+func (data *CrawlerFlagsJSON) Validate() error {
+	if len(data.RootUrl) == 0 {
+		return fmt.Errorf("url is required")
+	}
+
+	if data.Depth < 0 {
+		return fmt.Errorf("depth must be greater than  0")
+	}
+	return nil
+}
+
 func (f CrawlerFlags) String() string {
 	return fmt.Sprintf(
 		"Root URL     : %s\nDepth   : %d\nWorkers : %d",
@@ -32,7 +48,7 @@ func ExitWithFlagUsage(message string) {
 	os.Exit(1)
 }
 
-func defaultArgs() CrawlerFlags {
+func DefaultArgs() CrawlerFlags {
 	defaultPath := fmt.Sprintf("extractions-%s.jsonl", time.Now().Format("2006-01-02_15-04-05"))
 	return CrawlerFlags{
 		RootUrl:      "",
@@ -53,7 +69,7 @@ func ParseCrawlerFlags(args []string) (CrawlerFlags, error) {
 		fs.PrintDefaults()
 	}
 
-	da := defaultArgs()
+	da := DefaultArgs()
 	urlFlag := fs.String("url", da.RootUrl, "url for crawling")
 	depthFlag := fs.Int("depth", da.Depth, "depth for crawling")
 	workersFlag := fs.Int("workers", da.Workers, "Workers number for concurrent crawling")
