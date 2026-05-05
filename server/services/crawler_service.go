@@ -1,1 +1,5 @@
 package services
+
+func TriggerCrawlingService() {
+
+}

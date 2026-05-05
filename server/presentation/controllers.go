@@ -1,8 +1,7 @@
 package presentation
 
 import (
-	"guilhermec-costa/go-web-crawler/crawler"
-	"guilhermec-costa/go-web-crawler/crawler/cli"
+	"guilhermec-costa/go-web-crawler/crawler/validation"
 	"guilhermec-costa/go-web-crawler/server/app"
 	"guilhermec-costa/go-web-crawler/server/services"
 	"net/http"
@@ -32,21 +31,24 @@ func (c *Controllers) LoginController(r *http.Request) (any, int) {
 		return StrMap{"message": err.Error()}, http.StatusUnprocessableEntity
 	}
 
-	services.AuthService(payload)
-	return StrMap{"message": "user loggedf"}, http.StatusOK
+	services.LoginHandler(payload)
+	return StrMap{"message": "user logged"}, http.StatusOK
 }
 
 func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (any, int) {
-	var payload cli.CrawlerFlagsJSON
+	var payload validation.CrawlerFlagsJSON
 	if err := decodeJSON(r, &payload); err != nil {
 		return StrMap{"message": err.Error()}, http.StatusBadRequest
 	}
 
-	if crawlerArgs, err := cli.MergeWithDefault(payload); err != nil {
-		return StrMap{"message": "failed parsing crawler flags:" + err.Error()}, http.StatusBadRequest
-	} else {
-		go crawler.Bootstrap(crawlerArgs)
+	params := validation.FromJSONToCrawlerParams(payload)
+	if err := params.Validate(); err != nil {
+		return StrMap{"message": err.Error()}, http.StatusUnprocessableEntity
 	}
+
+	c.app.EnqueueCrawlerJob(app.Job{
+		Params: params,
+	})
 
 	return StrMap{"message": "job started"}, http.StatusOK
 }

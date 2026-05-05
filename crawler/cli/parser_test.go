@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	val "guilhermec-costa/go-web-crawler/crawler/validation"
 )
 
 func TestShouldReturnErrorOnEmptyUrl(t *testing.T) {
-	flags, err := ParseCrawlerFlags([]string{})
+	flags, err := ParseCliCrawlerFlags([]string{})
 
 	assert.Error(t, err)
 	assert.Equal(t, err.Error(), "-url is required")
@@ -17,11 +18,11 @@ func TestShouldReturnErrorOnEmptyUrl(t *testing.T) {
 
 func TestShouldReturnDefaultArgs(t *testing.T) {
 	url := "http://example.com"
-	flags, err := ParseCrawlerFlags([]string{
+	flags, err := ParseCliCrawlerFlags([]string{
 		"-url=" + url,
 	})
 
-	da := DefaultArgs()
+	da := val.DefaultCrawlerParams()
 	assert.NoError(t, err)
 	assert.Equal(t, flags.RootUrl, url)
 	assert.Equal(t, flags.Depth, da.Depth)

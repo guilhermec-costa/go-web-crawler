@@ -1,6 +1,6 @@
 package services
 
 
-func AuthService(payload LoginDTO) {
+func LoginHandler(payload LoginDTO) {
 
 }

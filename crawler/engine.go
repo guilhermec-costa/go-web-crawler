@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"guilhermec-costa/go-web-crawler/crawler/cli"
 	"guilhermec-costa/go-web-crawler/crawler/perf"
+	val "guilhermec-costa/go-web-crawler/crawler/validation"
 	"log"
 	"log/slog"
 	"net/url"
@@ -53,28 +53,19 @@ func showTickerData(tickerMetadata *TickerMetadata) {
 
 const RateLimiterBurstRate = 100
 
-func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
+func runCrawler(ctx context.Context, args val.CrawlerParams) error {
 	start := time.Now()
 	slog.Info("Starting crawler", "url", args.RootUrl)
 
-	procUpdtTicker := time.NewTicker(time.Duration(args.TickUpdateMs) * time.Millisecond)
-	tickerDone := make(chan struct{})
-	tickerMetadata := TickerMetadata{start: start}
-
 	rateLimiter := NewRateLimiter(ctx, RateLimiterBurstRate, 1000*time.Millisecond)
 
-	go func() {
-		for {
-			select {
-			case <-tickerDone:
-				procUpdtTicker.Stop()
-				return
-			case <-procUpdtTicker.C:
-				tickerMetadata.rateLimitBufLen = rateLimiter.TokenCount()
-				showTickerData(&tickerMetadata)
-			}
-		}
-	}()
+	tickerMetadata := TickerMetadata{start: start}
+	ticker := NewTickerProgress(ctx, args.TickUpdateMs, func() {
+		tickerMetadata.rateLimitBufLen = rateLimiter.TokenCount()
+		showTickerData(&tickerMetadata)
+	})
+
+	ticker.startTicking()
 
 	rootUrl, err := ParseAndValidateURL(args.RootUrl)
 	if err != nil {
@@ -175,8 +166,8 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 	select {
 	case <-nodeExtractionDone:
 		slog.Info("final ticker update after extraction completion")
-		showTickerData(&tickerMetadata)
-		tickerDone <- struct{}{}
+		ticker.Display()
+		ticker.Stop()
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -187,7 +178,7 @@ func runCrawler(ctx context.Context, args cli.CrawlerFlags) error {
 
 }
 
-func Bootstrap(args cli.CrawlerFlags) {
+func Bootstrap(args val.CrawlerParams) error {
 	ctx, cancel := context.WithTimeout(context.Background(), (time.Duration(args.TimeoutMs))*time.Millisecond)
 	defer cancel()
 	defer perf.TimeTrack(time.Now(), "Bootstrap")
@@ -195,8 +186,10 @@ func Bootstrap(args cli.CrawlerFlags) {
 	if err := runCrawler(ctx, args); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			log.Print("Timer exceeded timeout")
-			return
+			return err
 		}
 		slog.Error("could not complete crawling", "err", err)
 	}
+
+	return nil
 }
