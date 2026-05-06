@@ -7,15 +7,33 @@ import (
 )
 
 type User struct {
-	email string
+	Id        string
+	Email     string
+	Password  string
+	CreatedAt string
 }
 
 type UserDAO interface {
 	Create(email string, password string) (int64, error)
+	FindByEmail(email string) (User, error)
 }
 
 type UserSQLiteStore struct {
 	db *sql.DB
+}
+
+func (d *UserSQLiteStore) FindByEmail(email string) (User, error) {
+	row := d.db.QueryRow(`
+		SELECT * FROM users u
+		WHERE u.email = '?'
+	`, email)
+
+	var user User
+	if err := row.Scan(&user.Id, &user.Email, &user.Password, &user.CreatedAt); err != nil {
+		return user, fmt.Errorf("no user found by email %v", email)
+	}
+
+	return user, nil
 }
 
 func (d *UserSQLiteStore) Create(email string, password string) (int64, error) {

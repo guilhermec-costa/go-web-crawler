@@ -32,13 +32,13 @@ func (c *Controllers) SignInController(r *http.Request) (any, int) {
 		return StrMap{"message": err.Error()}, http.StatusUnprocessableEntity
 	}
 
-	err := services.SignInHandler(payload, c.app.UserStore)
+	token, err := services.SignInHandler(payload, c.app.UserStore)
 
 	if err != nil {
 		return ToMessageResponse(err.Error(), http.StatusUnprocessableEntity)
 	}
 
-	return ToMessageResponse("user logged", http.StatusOK)
+	return ToMessageResponse(StrMap{"token": token}, http.StatusOK)
 }
 
 func (c *Controllers) SignUpControler(r *http.Request) (any, int) {

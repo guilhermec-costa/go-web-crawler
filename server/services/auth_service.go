@@ -2,13 +2,36 @@ package services
 
 import (
 	"fmt"
+	"guilhermec-costa/go-web-crawler/server/app"
 	"guilhermec-costa/go-web-crawler/server/infra"
 	"log/slog"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
-func SignInHandler(payload SignInDTO, store infra.UserDAO) error {
-	return nil
+func SignInHandler(payload SignInDTO, store infra.UserDAO) (string, error) {
+	user, err := store.FindByEmail(payload.Email)
+	if err != nil {
+		return "", fmt.Errorf("invalid credentials")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(payload.Password)); err != nil {
+		return "", fmt.Errorf("invalid credentials")
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": user.Id,
+		"exp": time.Now().Add(time.Hour * 1).Unix(),
+	})
+
+	signedToken, err := token.SignedString([]byte(app.JWTSECRET))
+	if err != nil {
+		return "", fmt.Errorf("failed to sign jwt token")
+	}
+
+	return signedToken, nil
 }
 
 func SignUpHandler(payload SignUpDTO, store infra.UserDAO) (int64, error) {

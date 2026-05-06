@@ -1,15 +1,56 @@
 package presentation
 
 import (
+	"context"
 	"encoding/json"
+	"guilhermec-costa/go-web-crawler/server/app"
 	"log/slog"
 	"net/http"
-	// "github.com/golang-jwt/jwt/v5"
+	"os"
+	"strings"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		slog.Info("validating jwt token")
+		authHeader := r.Header.Get("Authorization")
+
+		if authHeader == "" {
+			http.Error(w, "missing authorization header", http.StatusUnauthorized)
+			return
+		}
+
+		token, found := strings.CutPrefix(authHeader, "Bearer ")
+		if !found {
+			http.Error(w, "invalid authorization format", http.StatusUnauthorized)
+			return
+		}
+
+		tokenSecret := os.Getenv(app.JWTSECRET)
+		parsedToken, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
+			return []byte(tokenSecret), nil
+		}, jwt.WithValidMethods([]string{jwt.SigningMethodES256.Alg()}))
+
+		if err != nil || !parsedToken.Valid {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		claims, ok := parsedToken.Claims.(jwt.MapClaims)
+		if !ok {
+			http.Error(w, "bad jwt claims", http.StatusUnauthorized)
+			return
+		}
+
+		userId, err := claims.GetSubject()
+		if err != nil {
+			http.Error(w, "invalid subject", http.StatusUnauthorized)
+			return
+		}
+
+		ctxWithUserId := context.WithValue(r.Context(), "userId", userId)
+		r = r.Clone(ctxWithUserId)
 		next.ServeHTTP(w, r)
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/joho/godotenv"
 	_ "modernc.org/sqlite"
 
 	"guilhermec-costa/go-web-crawler/server"
@@ -20,6 +21,14 @@ func main() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	if err := godotenv.Load(); err != nil {
+		panic("failed to load env variables")
+	}
+
+	if _, found := os.LookupEnv("JWTSECRET"); !found {
+		panic("jwt secret not found. Verify if is JWTSECRET is set")
+	}
 
 	const listenPort int16 = 3333
 	slog.Info(fmt.Sprintf("Starting crawler server at port %d", listenPort))

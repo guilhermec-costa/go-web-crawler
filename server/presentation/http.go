@@ -9,6 +9,7 @@ import (
 )
 
 type StrMap map[string]string
+type StrAnyMap map[string]any
 
 func SetJSONContentType(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
@@ -23,8 +24,8 @@ func ToJSONResponse(w io.Writer, v any) {
 	fmt.Fprintf(w, "%v", v)
 }
 
-func ToMessageResponse(err string, status int) (StrMap, int) {
-	return StrMap{"message": err}, status
+func ToMessageResponse(data any, status int) (StrAnyMap, int) {
+	return StrAnyMap{"message": data}, status
 }
 
 func decodeJSON(r *http.Request, v any) error {
