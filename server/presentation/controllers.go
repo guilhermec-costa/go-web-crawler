@@ -94,9 +94,7 @@ func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (ControllerRe
 		}, http.StatusUnprocessableEntity
 	}
 
-	err := c.app.EnqueueCrawlerJob(app.Job{
-		Params: params,
-	})
+	err := services.TriggerCrawlerExtraction("", params, c.app.JobQueue)
 
 	if err != nil {
 		return ControllerResponse{
@@ -105,8 +103,6 @@ func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (ControllerRe
 	}
 
 	return ControllerResponse{
-		Data: StrAnyMap{
-			"message": "job started",
-		},
+		Data: "job started",
 	}, http.StatusOK
 }

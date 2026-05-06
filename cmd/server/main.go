@@ -28,8 +28,9 @@ func checkEnv() {
 }
 
 func main() {
-	slog.SetLogLoggerLevel(slog.LevelDebug)
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
 	slog.SetDefault(logger)
 
 	// checkEnv()

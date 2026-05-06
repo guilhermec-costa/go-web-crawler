@@ -13,31 +13,24 @@ import (
 
 type Job struct {
 	Params validation.CrawlerParams
+	UserId string
 }
 
 type App struct {
-	JobQueue  chan Job
-	UserStore infra.UserDAO
+	JobQueue               chan Job
+	UserStore              infra.UserDAO
+	CrawlerExtractionStore infra.CrawlerExtractionDAO
 }
 
 func (a *App) startJobQueueMonitor() {
 	go func() {
 		for job := range a.JobQueue {
-			err := crawler.Bootstrap(job.Params)
+			_, err := crawler.Bootstrap(job.Params)
 			if err != nil {
 				slog.Error("Failed crawlwer for job", "job", job)
 			}
 		}
 	}()
-}
-
-func (a *App) EnqueueCrawlerJob(job Job) error {
-	select {
-	case a.JobQueue <- job:
-		return nil
-	default:
-		return fmt.Errorf("job queue is full")
-	}
 }
 
 func RootDir() string {
@@ -71,16 +64,23 @@ func NewApp() (*App, error) {
 	slog.Info("database initialized successfully", "path", dbPath)
 
 	userStore := infra.NewUserSQLiteStore(db)
+	crawlerExtractionStore := infra.NewCrawlerSQLiteStore(db)
 
 	slog.Info("running database migrations")
 	if err := userStore.Migrate(); err != nil {
-		slog.Error("migration failed", "err", err)
+		slog.Error("user migration failed", "err", err)
 		return nil, fmt.Errorf("failed to migrate user store: %w", err)
+	}
+
+	if err := crawlerExtractionStore.Migrate(); err != nil {
+		slog.Error("crawler extraction migration failed", "err", err)
+		return nil, fmt.Errorf("failed to migrate crawler extraction store: %w", err)
 	}
 
 	app := &App{
 		JobQueue:  q,
 		UserStore: userStore,
+		CrawlerExtractionStore: crawlerExtractionStore,
 	}
 
 	slog.Info("starting job queue monitor", "buffer_size", cap(q))

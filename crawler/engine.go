@@ -53,7 +53,7 @@ func showTickerData(tickerMetadata *TickerMetadata) {
 
 const RateLimiterBurstRate = 100
 
-func runCrawler(ctx context.Context, args val.CrawlerParams) error {
+func runCrawler(ctx context.Context, args val.CrawlerParams) (string, error) {
 	start := time.Now()
 	slog.Info("Starting crawler", "url", args.RootUrl)
 
@@ -69,7 +69,7 @@ func runCrawler(ctx context.Context, args val.CrawlerParams) error {
 
 	rootUrl, err := ParseAndValidateURL(args.RootUrl)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	visited := make(map[string]bool)
@@ -100,7 +100,7 @@ func runCrawler(ctx context.Context, args val.CrawlerParams) error {
 
 	file, err := os.OpenFile(args.OutputPath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to open output file: %w", err)
+		return "", fmt.Errorf("failed to open output file: %w", err)
 	}
 
 	defer file.Close()
@@ -169,27 +169,29 @@ func runCrawler(ctx context.Context, args val.CrawlerParams) error {
 		ticker.Display()
 		ticker.Stop()
 	case <-ctx.Done():
-		return ctx.Err()
+		return "", ctx.Err()
 	}
 
 	close(extractionJobsQueue)
 	close(extractionResultsQueue)
-	return nil
+	return args.OutputPath, nil
 
 }
 
-func Bootstrap(args val.CrawlerParams) error {
+func Bootstrap(args val.CrawlerParams) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), (time.Duration(args.TimeoutMs))*time.Millisecond)
 	defer cancel()
 	defer perf.TimeTrack(time.Now(), "Bootstrap")
 
-	if err := runCrawler(ctx, args); err != nil {
+	extractionsFilepath, err := runCrawler(ctx, args)
+
+	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			log.Print("Timer exceeded timeout")
-			return err
+			return "", err
 		}
 		slog.Error("could not complete crawling", "err", err)
 	}
 
-	return nil
+	return extractionsFilepath, nil
 }

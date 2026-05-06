@@ -6,7 +6,6 @@ import (
 	"guilhermec-costa/go-web-crawler/server/app"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -16,36 +15,53 @@ func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 
+		SetJSONContentType(w)
+
+		enc := json.NewEncoder(w)
 		if authHeader == "" {
-			http.Error(w, "missing authorization header", http.StatusUnauthorized)
+			w.WriteHeader(http.StatusUnauthorized)
+			enc.Encode(ControllerResponse{
+				Error: "missing authorization header",
+			})
 			return
 		}
 
 		token, found := strings.CutPrefix(authHeader, "Bearer ")
 		if !found {
-			http.Error(w, "invalid authorization format", http.StatusUnauthorized)
+			w.WriteHeader(http.StatusUnauthorized)
+			enc.Encode(ControllerResponse{
+				Error: "invalid authorization format",
+			})
 			return
 		}
 
-		tokenSecret := os.Getenv(app.JWTSECRET)
 		parsedToken, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
-			return []byte(tokenSecret), nil
-		}, jwt.WithValidMethods([]string{jwt.SigningMethodES256.Alg()}))
+			return []byte(app.JWTSECRET), nil
+		}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 
 		if err != nil || !parsedToken.Valid {
-			http.Error(w, "invalid token", http.StatusUnauthorized)
+			w.WriteHeader(http.StatusUnauthorized)
+			enc.Encode(ControllerResponse{
+				Error: "invalid token",
+			})
 			return
 		}
 
 		claims, ok := parsedToken.Claims.(jwt.MapClaims)
 		if !ok {
-			http.Error(w, "bad jwt claims", http.StatusUnauthorized)
+			w.WriteHeader(http.StatusUnauthorized)
+			enc.Encode(ControllerResponse{
+				Error: "bad jwt claims",
+			})
 			return
 		}
 
 		userId, err := claims.GetSubject()
 		if err != nil {
-			http.Error(w, "invalid subject", http.StatusUnauthorized)
+			w.WriteHeader(http.StatusUnauthorized)
+			enc.Encode(ControllerResponse{
+				Error: "invalid subject",
+			})
 			return
 		}
 
