@@ -2,10 +2,12 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
-	_ "modernc.org/sqlite"
 	"net/http"
 	"os"
+
+	_ "modernc.org/sqlite"
 
 	"guilhermec-costa/go-web-crawler/server"
 	"guilhermec-costa/go-web-crawler/server/app"
@@ -19,7 +21,9 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	slog.Info("Starting crawler server at port 3333")
+	const listenPort int16 = 3333
+	slog.Info(fmt.Sprintf("Starting crawler server at port %d", listenPort))
+
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -34,7 +38,7 @@ func main() {
 
 	server.SetupServerRoutes(r, app)
 
-	if err := http.ListenAndServe(":3333", r); err != nil {
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", listenPort), r); err != nil {
 		switch {
 		case errors.Is(err, http.ErrServerClosed):
 			{

@@ -1,6 +1,7 @@
 package presentation
 
 import (
+	"fmt"
 	"guilhermec-costa/go-web-crawler/crawler/validation"
 	"guilhermec-costa/go-web-crawler/server/app"
 	"guilhermec-costa/go-web-crawler/server/services"
@@ -46,8 +47,17 @@ func (c *Controllers) SignUpControler(r *http.Request) (any, int) {
 	if err := decodeJSON(r, &payload); err != nil {
 		return ToMessageResponse(err.Error(), http.StatusUnprocessableEntity)
 	}
-	services.SignUpHandler(payload, c.app.UserStore)
-	return ToMessageResponse("signup", http.StatusOK)
+
+	if err := payload.Validate(); err != nil {
+		return ToMessageResponse(err.Error(), http.StatusBadRequest)
+	}
+
+	id, err := services.SignUpHandler(payload, c.app.UserStore)
+	if err != nil {
+		return ToMessageResponse(err.Error(), http.StatusInternalServerError)
+	}
+
+	return ToMessageResponse(fmt.Sprintf("id: %d", id), http.StatusOK)
 }
 
 func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (any, int) {

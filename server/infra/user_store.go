@@ -21,7 +21,6 @@ type UserSQLiteStore struct {
 func (d *UserSQLiteStore) Create(email string, password string) (int64, error) {
 	result, err := d.db.Exec(`
 		INSERT INTO users (email, password) VALUES (?, ?)
-		RETURNING id
 	`, email, password)
 
 	if err != nil {
@@ -35,19 +34,6 @@ func (d *UserSQLiteStore) Create(email string, password string) (int64, error) {
 	}
 
 	return id, nil
-}
-
-func (d *UserSQLiteStore) Migrate() error {
-	_, err := d.db.Exec(`
-		CREATE TABLE IF NOT EXISTS users (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			email TEXT UNIQUE NOT NULL,
-			password TEXT NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);	
-	`)
-
-	return err
 }
 
 func NewUserSQLiteStore(db *sql.DB) *UserSQLiteStore {
