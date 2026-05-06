@@ -17,11 +17,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func main() {
-	slog.SetLogLoggerLevel(slog.LevelDebug)
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
+func checkEnv() {
 	if err := godotenv.Load(); err != nil {
 		panic("failed to load env variables")
 	}
@@ -29,6 +25,14 @@ func main() {
 	if _, found := os.LookupEnv("JWTSECRET"); !found {
 		panic("jwt secret not found. Verify if is JWTSECRET is set")
 	}
+}
+
+func main() {
+	slog.SetLogLoggerLevel(slog.LevelDebug)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
+	// checkEnv()
 
 	const listenPort int16 = 3333
 	slog.Info(fmt.Sprintf("Starting crawler server at port %d", listenPort))

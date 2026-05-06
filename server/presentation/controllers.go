@@ -1,7 +1,6 @@
 package presentation
 
 import (
-	"fmt"
 	"guilhermec-costa/go-web-crawler/crawler/validation"
 	"guilhermec-costa/go-web-crawler/server/app"
 	"guilhermec-costa/go-web-crawler/server/services"
@@ -18,57 +17,81 @@ func NewControllers(a *app.App) *Controllers {
 	}
 }
 
-func (c *Controllers) HealthController(r *http.Request) (any, int) {
-	return StrMap{"status": "ok"}, http.StatusOK
+func (c *Controllers) HealthController(r *http.Request) (ControllerResponse, int) {
+	return ControllerResponse{
+		Data: "ok",
+	}, http.StatusAccepted
 }
 
-func (c *Controllers) SignInController(r *http.Request) (any, int) {
+func (c *Controllers) SignInController(r *http.Request) (ControllerResponse, int) {
 	var payload services.SignInDTO
 	if err := decodeJSON(r, &payload); err != nil {
-		return StrMap{"message": err.Error()}, http.StatusBadRequest
+		return ControllerResponse{
+			Error: err.Error(),
+		}, http.StatusBadRequest
 	}
 
 	if err := payload.Validate(); err != nil {
-		return StrMap{"message": err.Error()}, http.StatusUnprocessableEntity
+		return ControllerResponse{
+			Error: err.Error(),
+		}, http.StatusUnprocessableEntity
 	}
 
 	token, err := services.SignInHandler(payload, c.app.UserStore)
 
 	if err != nil {
-		return ToMessageResponse(err.Error(), http.StatusUnprocessableEntity)
+		return ControllerResponse{
+			Error: err.Error(),
+		}, http.StatusUnauthorized
 	}
 
-	return ToMessageResponse(StrMap{"token": token}, http.StatusOK)
+	return ControllerResponse{
+		Data: token,
+	}, http.StatusOK
 }
 
-func (c *Controllers) SignUpControler(r *http.Request) (any, int) {
+func (c *Controllers) SignUpControler(r *http.Request) (ControllerResponse, int) {
 	var payload services.SignUpDTO
 
 	if err := decodeJSON(r, &payload); err != nil {
-		return ToMessageResponse(err.Error(), http.StatusUnprocessableEntity)
+		return ControllerResponse{
+			Error: err.Error(),
+		}, http.StatusUnprocessableEntity
 	}
 
 	if err := payload.Validate(); err != nil {
-		return ToMessageResponse(err.Error(), http.StatusBadRequest)
+		return ControllerResponse{
+			Error: err.Error(),
+		}, http.StatusBadRequest
 	}
 
 	id, err := services.SignUpHandler(payload, c.app.UserStore)
 	if err != nil {
-		return ToMessageResponse(err.Error(), http.StatusInternalServerError)
+		return ControllerResponse{
+			Error: err.Error(),
+		}, http.StatusInternalServerError
 	}
 
-	return ToMessageResponse(fmt.Sprintf("id: %d", id), http.StatusOK)
+	return ControllerResponse{
+		Data: StrAnyMap{
+			"userId": id,
+		},
+	}, http.StatusOK
 }
 
-func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (any, int) {
+func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (ControllerResponse, int) {
 	var payload validation.CrawlerFlagsJSON
 	if err := decodeJSON(r, &payload); err != nil {
-		return StrMap{"message": err.Error()}, http.StatusBadRequest
+		return ControllerResponse{
+			Error: err.Error(),
+		}, http.StatusBadRequest
 	}
 
 	params := validation.FromJSONToCrawlerParams(payload)
 	if err := params.Validate(); err != nil {
-		return StrMap{"message": err.Error()}, http.StatusUnprocessableEntity
+		return ControllerResponse{
+			Error: err.Error(),
+		}, http.StatusUnprocessableEntity
 	}
 
 	err := c.app.EnqueueCrawlerJob(app.Job{
@@ -76,8 +99,14 @@ func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (any, int) {
 	})
 
 	if err != nil {
-		return StrMap{"message": err.Error()}, http.StatusTooManyRequests
+		return ControllerResponse{
+			Error: err.Error(),
+		}, http.StatusTooManyRequests
 	}
 
-	return StrMap{"message": "job started"}, http.StatusOK
+	return ControllerResponse{
+		Data: StrAnyMap{
+			"message": "job started",
+		},
+	}, http.StatusOK
 }

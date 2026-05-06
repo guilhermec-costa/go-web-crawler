@@ -2,7 +2,6 @@ package services
 
 import (
 	"fmt"
-	"guilhermec-costa/go-web-crawler/server/app"
 	"guilhermec-costa/go-web-crawler/server/infra"
 	"log/slog"
 	"time"
@@ -26,7 +25,7 @@ func SignInHandler(payload SignInDTO, store infra.UserDAO) (string, error) {
 		"exp": time.Now().Add(time.Hour * 1).Unix(),
 	})
 
-	signedToken, err := token.SignedString([]byte(app.JWTSECRET))
+	signedToken, err := token.SignedString([]byte("churros"))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign jwt token")
 	}

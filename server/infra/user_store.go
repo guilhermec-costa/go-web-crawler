@@ -24,13 +24,16 @@ type UserSQLiteStore struct {
 
 func (d *UserSQLiteStore) FindByEmail(email string) (User, error) {
 	row := d.db.QueryRow(`
-		SELECT * FROM users u
-		WHERE u.email = '?'
+		SELECT id, email, password, created_at FROM users u
+		WHERE u.email = ?
 	`, email)
 
 	var user User
 	if err := row.Scan(&user.Id, &user.Email, &user.Password, &user.CreatedAt); err != nil {
-		return user, fmt.Errorf("no user found by email %v", email)
+		if err == sql.ErrNoRows {
+			return user, fmt.Errorf("user not found")
+		}
+		return user, err
 	}
 
 	return user, nil

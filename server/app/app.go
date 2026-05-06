@@ -7,6 +7,8 @@ import (
 	"guilhermec-costa/go-web-crawler/crawler/validation"
 	"guilhermec-costa/go-web-crawler/server/infra"
 	"log/slog"
+	"path/filepath"
+	"runtime"
 )
 
 type Job struct {
@@ -38,8 +40,13 @@ func (a *App) EnqueueCrawlerJob(job Job) error {
 	}
 }
 
+func RootDir() string {
+	_, b, _, _ := runtime.Caller(0)
+	return filepath.Dir(filepath.Dir(b))
+}
+
 func NewApp() (*App, error) {
-	const dbPath = "crawler.db"
+	dbPath := filepath.Join(RootDir(), "crawler.db")
 	q := make(chan Job, 100)
 
 	db, err := sql.Open("sqlite", dbPath)

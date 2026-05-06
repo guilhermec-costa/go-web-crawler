@@ -55,7 +55,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-type HandlerFunc func(r *http.Request) (any, int)
+type HandlerFunc func(r *http.Request) (ControllerResponse, int)
 
 func JsonHandler(h HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
