@@ -23,6 +23,10 @@ func ToJSONResponse(w io.Writer, v any) {
 	fmt.Fprintf(w, "%v", v)
 }
 
+func ToMessageResponse(err string, status int) (StrMap, int) {
+	return StrMap{"message": err}, status
+}
+
 func decodeJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()

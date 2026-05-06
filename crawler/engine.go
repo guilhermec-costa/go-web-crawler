@@ -60,7 +60,7 @@ func runCrawler(ctx context.Context, args val.CrawlerParams) error {
 	rateLimiter := NewRateLimiter(ctx, RateLimiterBurstRate, 1000*time.Millisecond)
 
 	tickerMetadata := TickerMetadata{start: start}
-	ticker := NewTickerProgress(ctx, args.TickUpdateMs, func() {
+	ticker := NewTickerProgress(ctx, time.Duration(args.TickUpdateMs)*time.Millisecond, func() {
 		tickerMetadata.rateLimitBufLen = rateLimiter.TokenCount()
 		showTickerData(&tickerMetadata)
 	})

@@ -17,7 +17,8 @@ func crawlerRouter(c *pres.Controllers) http.Handler {
 
 func authRouter(c *pres.Controllers) http.Handler {
 	r := chi.NewRouter()
-	r.Post("/login", pres.JsonHandler(c.LoginController))
+	r.Post("/signin", pres.JsonHandler(c.SignInController))
+	r.Post("/signup", pres.JsonHandler(c.SignUpControler))
 	return r
 }
 

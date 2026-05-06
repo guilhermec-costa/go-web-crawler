@@ -7,7 +7,6 @@ import (
 
 type ProgressTicker struct {
 	ctx       context.Context
-	freqMs    int
 	done      chan struct{}
 	ticker    *time.Ticker
 	displayFn func()
@@ -38,13 +37,12 @@ func (t *ProgressTicker) Stop() {
 	t.done <- struct{}{}
 }
 
-func NewTickerProgress(ctx context.Context, freqMs int, tickerDisplayFn func()) ProgressTicker {
-	ticker := time.NewTicker(time.Duration(freqMs) * time.Millisecond)
+func NewTickerProgress(ctx context.Context, freq time.Duration, tickerDisplayFn func()) ProgressTicker {
+	ticker := time.NewTicker(freq)
 
-	doneCh := make(chan struct{})
+	doneCh := make(chan struct{}, 1)
 	return ProgressTicker{
 		ctx:       ctx,
-		freqMs:    freqMs,
 		done:      doneCh,
 		ticker:    ticker,
 		displayFn: tickerDisplayFn,

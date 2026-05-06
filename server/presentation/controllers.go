@@ -21,8 +21,8 @@ func (c *Controllers) HealthController(r *http.Request) (any, int) {
 	return StrMap{"status": "ok"}, http.StatusOK
 }
 
-func (c *Controllers) LoginController(r *http.Request) (any, int) {
-	var payload services.LoginDTO
+func (c *Controllers) SignInController(r *http.Request) (any, int) {
+	var payload services.SignInDTO
 	if err := decodeJSON(r, &payload); err != nil {
 		return StrMap{"message": err.Error()}, http.StatusBadRequest
 	}
@@ -31,8 +31,23 @@ func (c *Controllers) LoginController(r *http.Request) (any, int) {
 		return StrMap{"message": err.Error()}, http.StatusUnprocessableEntity
 	}
 
-	services.LoginHandler(payload)
-	return StrMap{"message": "user logged"}, http.StatusOK
+	err := services.SignInHandler(payload, c.app.UserStore)
+
+	if err != nil {
+		return ToMessageResponse(err.Error(), http.StatusUnprocessableEntity)
+	}
+
+	return ToMessageResponse("user logged", http.StatusOK)
+}
+
+func (c *Controllers) SignUpControler(r *http.Request) (any, int) {
+	var payload services.SignUpDTO
+
+	if err := decodeJSON(r, &payload); err != nil {
+		return ToMessageResponse(err.Error(), http.StatusUnprocessableEntity)
+	}
+	services.SignUpHandler(payload, c.app.UserStore)
+	return ToMessageResponse("signup", http.StatusOK)
 }
 
 func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (any, int) {
@@ -46,9 +61,13 @@ func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (any, int) {
 		return StrMap{"message": err.Error()}, http.StatusUnprocessableEntity
 	}
 
-	c.app.EnqueueCrawlerJob(app.Job{
+	err := c.app.EnqueueCrawlerJob(app.Job{
 		Params: params,
 	})
+
+	if err != nil {
+		return StrMap{"message": err.Error()}, http.StatusTooManyRequests
+	}
 
 	return StrMap{"message": "job started"}, http.StatusOK
 }

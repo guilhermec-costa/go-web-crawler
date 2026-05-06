@@ -1,10 +1,15 @@
 package services
 
-type LoginDTO struct {
+type SignInDTO struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-func (payload LoginDTO) Validate() error {
+func (payload SignInDTO) Validate() error {
 	return nil
+}
+
+type SignUpDTO struct {
+	Email string `json:"email"`
+	Password string `json:"password"`
 }

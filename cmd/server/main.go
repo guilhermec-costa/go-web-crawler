@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"log/slog"
+	_ "modernc.org/sqlite"
 	"net/http"
 	"os"
 
@@ -18,17 +19,22 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	slog.Info("Starting crawler server at port 8000")
+	slog.Info("Starting crawler server at port 3333")
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	app := app.NewApp()
+	app, err := app.NewApp()
+	if err != nil {
+		slog.Error(err.Error())
+		return
+	}
+
 	server.SetupServerRoutes(r, app)
 
-	if err := http.ListenAndServe(":8000", r); err != nil {
+	if err := http.ListenAndServe(":3333", r); err != nil {
 		switch {
 		case errors.Is(err, http.ErrServerClosed):
 			{
