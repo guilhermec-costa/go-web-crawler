@@ -2,6 +2,7 @@ package infra
 
 import (
 	"database/sql"
+	"fmt"
 )
 
 type CrawlerExtraction struct {
@@ -14,7 +15,7 @@ type CrawlerExtractionUpdate struct {
 }
 
 type CrawlerExtractionDAO interface {
-	Create(userId string, extractions string) (int, error)
+	Create(userId string, extractions string) (int64, error)
 	Update(CrawlerExtractionUpdate)
 }
 
@@ -22,20 +23,25 @@ type CrawlerExtractionSQLiteStore struct {
 	db *sql.DB
 }
 
-func (s *CrawlerExtractionSQLiteStore) Create(userId string, extractions string) (int, error) {
-	_, err := s.db.Exec(`
-		INSERT INTO crawljobs ()
-	`)
+func (s *CrawlerExtractionSQLiteStore) Create(userId string, extractions string) (int64, error) {
+	result, err := s.db.Exec(`
+		INSERT INTO crawljobs (user_id, extractions)
+		VALUES (?, ?);
+	`, userId, extractions)
 
 	if err != nil {
 		return 0, err
 	}
 
-	return 0, nil
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed getting last inserted id: %v", err)
+	}
+
+	return id, nil
 }
 
 func (s *CrawlerExtractionSQLiteStore) Update(payload CrawlerExtractionUpdate) {
-
 }
 
 func NewCrawlerSQLiteStore(db *sql.DB) *CrawlerExtractionSQLiteStore {

@@ -22,9 +22,10 @@ func authRouter(c *pres.Controllers) http.Handler {
 	return r
 }
 
-func SetupServerRoutes(rootRouter *chi.Mux, app *app.App) {
+func MakeCtrls(rootRouter *chi.Mux, app *app.App) *pres.Controllers {
 	c := pres.NewControllers(app)
 	rootRouter.Get("/health", pres.JsonHandler(c.HealthController))
 	rootRouter.Mount("/auth", authRouter(c))
 	rootRouter.Mount("/crawls", crawlerRouter(c))
+	return c
 }

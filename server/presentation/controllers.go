@@ -8,12 +8,12 @@ import (
 )
 
 type Controllers struct {
-	app *app.App
+	a *app.App
 }
 
 func NewControllers(a *app.App) *Controllers {
 	return &Controllers{
-		app: a,
+		a: a,
 	}
 }
 
@@ -37,7 +37,7 @@ func (c *Controllers) SignInController(r *http.Request) (ControllerResponse, int
 		}, http.StatusUnprocessableEntity
 	}
 
-	token, err := services.SignInHandler(payload, c.app.UserStore)
+	token, err := c.a.UserService.SignInHandler(payload)
 
 	if err != nil {
 		return ControllerResponse{
@@ -56,16 +56,16 @@ func (c *Controllers) SignUpControler(r *http.Request) (ControllerResponse, int)
 	if err := decodeJSON(r, &payload); err != nil {
 		return ControllerResponse{
 			Error: err.Error(),
-		}, http.StatusUnprocessableEntity
+		}, http.StatusBadRequest
 	}
 
 	if err := payload.Validate(); err != nil {
 		return ControllerResponse{
 			Error: err.Error(),
-		}, http.StatusBadRequest
+		}, http.StatusUnprocessableEntity
 	}
 
-	id, err := services.SignUpHandler(payload, c.app.UserStore)
+	id, err := c.a.UserService.SignUpHandler(payload)
 	if err != nil {
 		return ControllerResponse{
 			Error: err.Error(),
@@ -94,7 +94,14 @@ func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (ControllerRe
 		}, http.StatusUnprocessableEntity
 	}
 
-	err := services.TriggerCrawlerExtraction("", params, c.app.JobQueue)
+	userId, ok := r.Context().Value(userContextKey).(string)
+	if !ok {
+		return ControllerResponse{
+			Error: "unauthorized",
+		}, http.StatusUnauthorized
+	}
+
+	err := c.a.CrawlerService.TriggerCrawlerExtraction(userId, params, c.a.JobQueue)
 
 	if err != nil {
 		return ControllerResponse{

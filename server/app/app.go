@@ -3,34 +3,35 @@ package app
 import (
 	"database/sql"
 	"fmt"
-	"guilhermec-costa/go-web-crawler/crawler"
-	"guilhermec-costa/go-web-crawler/crawler/validation"
 	"guilhermec-costa/go-web-crawler/server/infra"
+	"guilhermec-costa/go-web-crawler/server/services"
+	"guilhermec-costa/go-web-crawler/server/types"
 	"log/slog"
 	"path/filepath"
 	"runtime"
 )
 
-type Job struct {
-	Params validation.CrawlerParams
-	UserId string
-}
-
 type App struct {
-	JobQueue               chan Job
+	JobQueue               chan types.Job
 	UserStore              infra.UserDAO
 	CrawlerExtractionStore infra.CrawlerExtractionDAO
+	JobProcessor           types.JobProcessor
+	UserService            *services.AuthService
+	CrawlerService         *services.CrawlerService
 }
 
-func (a *App) startJobQueueMonitor() {
+func (a *App) startCrawlerJobQueueMonitor() {
 	go func() {
 		for job := range a.JobQueue {
-			_, err := crawler.Bootstrap(job.Params)
-			if err != nil {
-				slog.Error("Failed crawlwer for job", "job", job)
+			if err := a.JobProcessor(job); err != nil {
+				slog.Error("failed to process job", "job", job)
 			}
 		}
 	}()
+}
+
+func (a *App) SetJobProcessor(jp types.JobProcessor) {
+	a.JobProcessor = jp
 }
 
 func RootDir() string {
@@ -40,7 +41,7 @@ func RootDir() string {
 
 func NewApp() (*App, error) {
 	dbPath := filepath.Join(RootDir(), "crawler.db")
-	q := make(chan Job, 100)
+	q := make(chan types.Job, 100)
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -78,13 +79,16 @@ func NewApp() (*App, error) {
 	}
 
 	app := &App{
-		JobQueue:  q,
-		UserStore: userStore,
+		JobQueue:               q,
+		UserStore:              userStore,
 		CrawlerExtractionStore: crawlerExtractionStore,
+		UserService:            services.NewAuthService(userStore),
+		CrawlerService:         services.NewCrawlerService(crawlerExtractionStore),
 	}
 
 	slog.Info("starting job queue monitor", "buffer_size", cap(q))
-	app.startJobQueueMonitor()
+
+	app.startCrawlerJobQueueMonitor()
 
 	return app, nil
 }

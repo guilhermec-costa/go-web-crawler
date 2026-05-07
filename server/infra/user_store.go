@@ -3,6 +3,7 @@ package infra
 import (
 	"database/sql"
 	"fmt"
+	"errors"
 	"log/slog"
 )
 
@@ -30,7 +31,7 @@ func (d *UserSQLiteStore) FindByEmail(email string) (User, error) {
 
 	var user User
 	if err := row.Scan(&user.Id, &user.Email, &user.Password, &user.CreatedAt); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err,sql.ErrNoRows) {
 			return user, fmt.Errorf("user not found")
 		}
 		return user, err

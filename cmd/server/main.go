@@ -10,8 +10,10 @@ import (
 	"github.com/joho/godotenv"
 	_ "modernc.org/sqlite"
 
+	"guilhermec-costa/go-web-crawler/crawler"
 	"guilhermec-costa/go-web-crawler/server"
 	"guilhermec-costa/go-web-crawler/server/app"
+	"guilhermec-costa/go-web-crawler/server/types"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -44,13 +46,25 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	app, err := app.NewApp()
+	theApp, err := app.NewApp()
 	if err != nil {
 		slog.Error(err.Error())
 		return
 	}
 
-	server.SetupServerRoutes(r, app)
+	theApp.SetJobProcessor(func(job types.Job) error {
+		outputPath, bstrapErr := crawler.Bootstrap(job.Params)
+		if bstrapErr != nil {
+			return bstrapErr
+		}
+		extrErr := theApp.CrawlerService.SaveCrawlerExtraction(job.UserId, outputPath, theApp.CrawlerExtractionStore)
+		if extrErr != nil {
+			return extrErr
+		}
+		return nil
+	})
+
+	server.MakeCtrls(r, theApp)
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", listenPort), r); err != nil {
 		switch {

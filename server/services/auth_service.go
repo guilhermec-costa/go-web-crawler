@@ -2,7 +2,6 @@ package services
 
 import (
 	"fmt"
-	"guilhermec-costa/go-web-crawler/server/app"
 	"guilhermec-costa/go-web-crawler/server/infra"
 	"log/slog"
 	"time"
@@ -11,8 +10,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func SignInHandler(payload SignInDTO, store infra.UserDAO) (string, error) {
-	user, err := store.FindByEmail(payload.Email)
+type AuthService struct {
+	store infra.UserDAO
+}
+
+func (a *AuthService) SignInHandler(payload SignInDTO) (string, error) {
+	user, err := a.store.FindByEmail(payload.Email)
 	if err != nil {
 		return "", fmt.Errorf("invalid credentials")
 	}
@@ -26,7 +29,7 @@ func SignInHandler(payload SignInDTO, store infra.UserDAO) (string, error) {
 		"exp": time.Now().Add(time.Hour * 1).Unix(),
 	})
 
-	signedToken, err := token.SignedString([]byte(app.JWTSECRET))
+	signedToken, err := token.SignedString([]byte("churros"))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign jwt token")
 	}
@@ -34,7 +37,7 @@ func SignInHandler(payload SignInDTO, store infra.UserDAO) (string, error) {
 	return signedToken, nil
 }
 
-func SignUpHandler(payload SignUpDTO, store infra.UserDAO) (int64, error) {
+func (a *AuthService) SignUpHandler(payload SignUpDTO) (int64, error) {
 	slog.Info("creating user", "email", payload.Email)
 	hash, err := bcrypt.GenerateFromPassword([]byte(payload.Password), bcrypt.DefaultCost)
 
@@ -42,7 +45,7 @@ func SignUpHandler(payload SignUpDTO, store infra.UserDAO) (int64, error) {
 		return 0, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	result, err := store.Create(payload.Email, string(hash))
+	result, err := a.store.Create(payload.Email, string(hash))
 	if err != nil {
 		slog.Error("failed to create user", "email", payload.Email)
 		return 0, fmt.Errorf("Failed to create user: %v", err)
@@ -50,4 +53,10 @@ func SignUpHandler(payload SignUpDTO, store infra.UserDAO) (int64, error) {
 
 	slog.Info("user successfully created", "email", payload.Email)
 	return result, nil
+}
+
+func NewAuthService(s infra.UserDAO) *AuthService {
+	return &AuthService{
+		store: s,
+	}
 }
