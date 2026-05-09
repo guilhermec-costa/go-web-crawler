@@ -24,7 +24,7 @@ func (a *App) startCrawlerJobQueueMonitor() {
 	go func() {
 		for job := range a.JobQueue {
 			if err := a.JobProcessor(job); err != nil {
-				slog.Error("failed to process job", "job", job)
+				slog.Error("failed to process job", "err", err)
 			}
 		}
 	}()
@@ -83,7 +83,7 @@ func NewApp() (*App, error) {
 		UserStore:              userStore,
 		CrawlerExtractionStore: crawlerExtractionStore,
 		UserService:            services.NewAuthService(userStore),
-		CrawlerService:         services.NewCrawlerService(crawlerExtractionStore),
+		CrawlerService:         services.NewCrawlerService(crawlerExtractionStore, userStore),
 	}
 
 	slog.Info("starting job queue monitor", "buffer_size", cap(q))

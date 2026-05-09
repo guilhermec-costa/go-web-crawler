@@ -2,8 +2,8 @@ package infra
 
 import (
 	"database/sql"
-	"fmt"
 	"errors"
+	"fmt"
 	"log/slog"
 )
 
@@ -17,27 +17,37 @@ type User struct {
 type UserDAO interface {
 	Create(email string, password string) (int64, error)
 	FindByEmail(email string) (User, error)
+	FindById(id string) (User, error)
 }
 
 type UserSQLiteStore struct {
 	db *sql.DB
 }
 
-func (d *UserSQLiteStore) FindByEmail(email string) (User, error) {
-	row := d.db.QueryRow(`
+func (d *UserSQLiteStore) findByColumn(columnName string, value any) (User, error) {
+	queryStr := fmt.Sprintf(`
 		SELECT id, email, password, created_at FROM users u
-		WHERE u.email = ?
-	`, email)
+		where u.%s = ?
+	`, columnName)
 
+	row := d.db.QueryRow(queryStr, value)
 	var user User
 	if err := row.Scan(&user.Id, &user.Email, &user.Password, &user.CreatedAt); err != nil {
-		if errors.Is(err,sql.ErrNoRows) {
-			return user, fmt.Errorf("user not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			return user, fmt.Errorf("user not found by %s", columnName)
 		}
 		return user, err
 	}
 
 	return user, nil
+}
+
+func (d *UserSQLiteStore) FindByEmail(email string) (User, error) {
+	return d.findByColumn("email", email)
+}
+
+func (d *UserSQLiteStore) FindById(id string) (User, error) {
+	return d.findByColumn("id", id)
 }
 
 func (d *UserSQLiteStore) Create(email string, password string) (int64, error) {

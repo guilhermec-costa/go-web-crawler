@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 	_ "modernc.org/sqlite"
@@ -53,11 +54,17 @@ func main() {
 	}
 
 	theApp.SetJobProcessor(func(job types.Job) error {
+		extractionId, createErr := theApp.CrawlerService.CreateExtraction(job.UserId, "")
+		if createErr != nil {
+			return createErr
+		}
+
 		outputPath, bstrapErr := crawler.Bootstrap(job.Params)
 		if bstrapErr != nil {
 			return bstrapErr
 		}
-		extrErr := theApp.CrawlerService.SaveCrawlerExtraction(job.UserId, outputPath, theApp.CrawlerExtractionStore)
+
+		extrErr := theApp.CrawlerService.PatchExtractionByFilepathAndId(strconv.FormatInt(extractionId, 10), outputPath)
 		if extrErr != nil {
 			return extrErr
 		}
