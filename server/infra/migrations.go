@@ -1,5 +1,9 @@
 package infra
 
+type Migrator interface {
+	Migrate() error
+}
+
 func (d *CrawlerExtractionSQLiteStore) Migrate() error {
 	_, err := d.db.Exec(`
 		CREATE TABLE IF NOT EXISTS crawler_jobs (

@@ -12,6 +12,7 @@ func crawlerRouter(c *pres.Controllers) http.Handler {
 	r := chi.NewRouter()
 	r.Use(pres.AuthMiddleware)
 	r.Post("/", pres.JsonHandler(c.TriggerCrawlerJobController))
+	r.Get("/", pres.JsonHandler(c.ListExtractios))
 	return r
 }
 
@@ -22,8 +23,8 @@ func authRouter(c *pres.Controllers) http.Handler {
 	return r
 }
 
-func MakeCtrls(rootRouter *chi.Mux, app *app.App) *pres.Controllers {
-	c := pres.NewControllers(app)
+func MakeCtrls(rootRouter *chi.Mux, di *app.DIContainer) *pres.Controllers {
+	c := pres.NewControllers(di)
 	rootRouter.Get("/health", pres.JsonHandler(c.HealthController))
 	rootRouter.Mount("/auth", authRouter(c))
 	rootRouter.Mount("/crawls", crawlerRouter(c))

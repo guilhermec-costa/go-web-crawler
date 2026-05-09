@@ -55,7 +55,7 @@ func FromJSONToCrawlerParams(payload CrawlerFlagsJSON) CrawlerParams {
 
 func (f CrawlerParams) String() string {
 	return fmt.Sprintf(
-		"Root URL     : %s\nDepth   : %d\nWorkers : %d",
+		"root-url: %s, depth: %d, workers : %d",
 		f.RootUrl, f.Depth, f.Workers,
 	)
 }

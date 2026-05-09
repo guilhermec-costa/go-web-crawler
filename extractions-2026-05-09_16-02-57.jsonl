@@ -1,0 +1,11 @@
+{
+  "url": "http://books.toscrape.com",
+  "parentUrl": "",
+  "nodeCount": {
+    "a": 94,
+    "div": 56,
+    "h1": 1,
+    "h2": 0,
+    "p": 60
+  }
+}

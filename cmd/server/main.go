@@ -6,28 +6,26 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 
-	"github.com/joho/godotenv"
 	_ "modernc.org/sqlite"
 
 	"guilhermec-costa/go-web-crawler/crawler"
 	"guilhermec-costa/go-web-crawler/server"
 	"guilhermec-costa/go-web-crawler/server/app"
+	"guilhermec-costa/go-web-crawler/server/infra"
+	"guilhermec-costa/go-web-crawler/server/services"
 	"guilhermec-costa/go-web-crawler/server/types"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func checkEnv() {
-	if err := godotenv.Load(); err != nil {
-		panic("failed to load env variables")
-	}
-
-	if _, found := os.LookupEnv("JWTSECRET"); !found {
-		panic("jwt secret not found. Verify if is JWTSECRET is set")
-	}
+func RootDir() string {
+	_, b, _, _ := runtime.Caller(0)
+	return filepath.Dir(filepath.Dir(b))
 }
 
 func main() {
@@ -35,8 +33,6 @@ func main() {
 		Level: slog.LevelDebug,
 	}))
 	slog.SetDefault(logger)
-
-	// checkEnv()
 
 	const listenPort int16 = 3333
 	slog.Info(fmt.Sprintf("Starting crawler server at port %d", listenPort))
@@ -47,14 +43,37 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	theApp, err := app.NewApp()
+	dbPath := filepath.Join(RootDir(), "crawler.db")
+	dbMng, err := infra.NewDbManager("sqlite", dbPath)
 	if err != nil {
-		slog.Error(err.Error())
+		slog.Error("database connection failed: %v", "err", err)
 		return
 	}
 
-	theApp.SetJobProcessor(func(job types.Job) error {
-		extractionId, createErr := theApp.CrawlerService.CreateExtraction(job.UserId, "")
+	slog.Info("driver connection established")
+
+	if err := dbMng.Ping(); err != nil {
+		slog.Error("database unreachable: %v", "err", err)
+		return
+	}
+
+	slog.Info("database initialized successfully", "path", dbPath)
+
+	userStore := infra.NewUserSQLiteStore(dbMng.DB())
+	crawlerExtractionStore := infra.NewCrawlerSQLiteStore(dbMng.DB())
+
+	migrators := []infra.Migrator{userStore, crawlerExtractionStore}
+	for _, m := range migrators {
+		if err := m.Migrate(); err != nil {
+			slog.Error("migration failed", "err", err)
+			return
+		}
+	}
+
+	userService := services.NewAuthService(userStore)
+	crawlerService := services.NewCrawlerService(crawlerExtractionStore, userStore)
+	jobMonitor := infra.NewJobMonitor(func(job types.Job) error {
+		extractionId, createErr := crawlerService.CreateExtraction(job.UserId, "[]")
 		if createErr != nil {
 			return createErr
 		}
@@ -64,14 +83,22 @@ func main() {
 			return bstrapErr
 		}
 
-		extrErr := theApp.CrawlerService.PatchExtractionByFilepathAndId(strconv.FormatInt(extractionId, 10), outputPath)
+		extrErr := crawlerService.PatchExtractionByFilepathAndId(strconv.FormatInt(extractionId, 10), outputPath)
 		if extrErr != nil {
 			return extrErr
 		}
 		return nil
-	})
+	}, 100)
 
-	server.MakeCtrls(r, theApp)
+	diContainer := &app.DIContainer{
+		JobMonitor:             jobMonitor,
+		UserStore:              userStore,
+		CrawlerExtractionStore: crawlerExtractionStore,
+		UserService:            userService,
+		CrawlerService:         crawlerService,
+	}
+
+	server.MakeCtrls(r, diContainer)
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", listenPort), r); err != nil {
 		switch {

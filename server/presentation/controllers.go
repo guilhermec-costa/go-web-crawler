@@ -8,12 +8,12 @@ import (
 )
 
 type Controllers struct {
-	a *app.App
+	DI *app.DIContainer
 }
 
-func NewControllers(a *app.App) *Controllers {
+func NewControllers(c *app.DIContainer) *Controllers {
 	return &Controllers{
-		a: a,
+		DI: c,
 	}
 }
 
@@ -37,7 +37,7 @@ func (c *Controllers) SignInController(r *http.Request) (ControllerResponse, int
 		}, http.StatusUnprocessableEntity
 	}
 
-	token, err := c.a.UserService.SignInHandler(payload)
+	token, err := c.DI.UserService.SignInHandler(payload)
 
 	if err != nil {
 		return ControllerResponse{
@@ -65,7 +65,7 @@ func (c *Controllers) SignUpControler(r *http.Request) (ControllerResponse, int)
 		}, http.StatusUnprocessableEntity
 	}
 
-	id, err := c.a.UserService.SignUpHandler(payload)
+	id, err := c.DI.UserService.SignUpHandler(payload)
 	if err != nil {
 		return ControllerResponse{
 			Error: err.Error(),
@@ -76,6 +76,23 @@ func (c *Controllers) SignUpControler(r *http.Request) (ControllerResponse, int)
 		Data: StrAnyMap{
 			"userId": id,
 		},
+	}, http.StatusOK
+}
+
+func (c *Controllers) ListExtractios(r *http.Request) (ControllerResponse, int) {
+	vals := r.URL.Query()
+	listDTO := services.ListExtractionDTO{}
+	listDTO.ResolvePagination(vals.Get("page"), vals.Get("limit"))
+
+	extractions, err := c.DI.CrawlerService.ListExtractions(listDTO)
+	if err != nil {
+		return ControllerResponse{
+			Error: "failed to list extractions",
+		}, http.StatusInternalServerError
+	}
+
+	return ControllerResponse{
+		Data: extractions,
 	}, http.StatusOK
 }
 
@@ -101,7 +118,7 @@ func (c *Controllers) TriggerCrawlerJobController(r *http.Request) (ControllerRe
 		}, http.StatusUnauthorized
 	}
 
-	err := c.a.CrawlerService.TriggerCrawlerExtraction(userId, params, c.a.JobQueue)
+	err := c.DI.JobMonitor.TriggerJob(userId, params)
 
 	if err != nil {
 		return ControllerResponse{

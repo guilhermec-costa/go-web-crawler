@@ -8,12 +8,43 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 )
 
 type CrawlerService struct {
 	crawlerStore infra.CrawlerExtractionDAO
 	userStore    infra.UserDAO
+}
+
+type ListExtractionDTO struct {
+	Page  int64
+	Limit int64
+}
+
+func parseIntOrDefault(value string, theDefault int64) int64 {
+	parsedValue, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return theDefault
+	}
+	return parsedValue
+}
+
+func (p *ListExtractionDTO) ResolvePagination(page string, limit string) {
+	p.Page = parseIntOrDefault(page, 1)
+	p.Limit = parseIntOrDefault(limit, 10)
+}
+
+func (s *CrawlerService) ListExtractions(payload ListExtractionDTO) ([]infra.CrawlerExtraction, error) {
+	offset := (payload.Page - 1) * payload.Limit
+
+	extractions, err := s.crawlerStore.List(payload.Limit, offset)
+	if err != nil {
+		slog.Error("failed to list extractions", "err", err)
+		return []infra.CrawlerExtraction{}, err
+	}
+
+	return extractions, nil
 }
 
 func (s *CrawlerService) CreateExtraction(userId string, extractions string) (int64, error) {
