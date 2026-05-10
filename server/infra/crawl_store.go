@@ -23,11 +23,11 @@ func jsonlStrToJSONArray(jsonl string) (json.RawMessage, error) {
 }
 
 type CrawlerExtraction struct {
-	Id          string
-	UserId      string
+	Id          int64           `json:"id"`
+	UserId      int64           `json:"userId"`
 	Extractions json.RawMessage `json:"extraction"`
-	CreatedAt   *time.Time
-	FinishedAt  *time.Time
+	CreatedAt   *time.Time      `json:"createdAt"`
+	FinishedAt  *time.Time      `json:"finishedAt"`
 }
 
 type CrawlerExtractionUpdateDTO struct {

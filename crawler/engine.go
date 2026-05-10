@@ -106,7 +106,6 @@ func runCrawler(ctx context.Context, args val.CrawlerParams) (string, error) {
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
 
 	go func() {
 		for result := range extractionResultsQueue {

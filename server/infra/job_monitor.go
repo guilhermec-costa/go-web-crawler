@@ -51,9 +51,9 @@ func (j *JobMonitor) Start() {
 	go func() {
 		for job := range j.queue.Q {
 			if err := j.processor(job); err != nil {
-				slog.Error("failed to process job", "err", err)
+				slog.Error("failed to complete job processing", "err", err, "params", job.Params)
 			} else {
-				slog.Info("finished processing job", "params", job.Params)
+				slog.Info("finished processing job successfully", "params", job.Params)
 			}
 		}
 	}()

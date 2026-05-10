@@ -1,13 +1,13 @@
 package validation
 
 type CrawlerParams struct {
-	RootUrl      string
-	Depth        int
-	Workers      int
-	Verbose      bool
-	OutputPath   string
-	TickUpdateMs int
-	TimeoutMs    int
+	RootUrl          string
+	Depth            int
+	Workers          int
+	Verbose          bool
+	OutputPath       string
+	TickUpdateMs     int
+	TimeoutMs        int
 }
 
 type CrawlerFlagsJSON struct {

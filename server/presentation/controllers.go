@@ -79,7 +79,7 @@ func (c *Controllers) SignUpControler(r *http.Request) (ControllerResponse, int)
 	}, http.StatusOK
 }
 
-func (c *Controllers) ListExtractios(r *http.Request) (ControllerResponse, int) {
+func (c *Controllers) ListExtractions(r *http.Request) (ControllerResponse, int) {
 	vals := r.URL.Query()
 	listDTO := services.ListExtractionDTO{}
 	listDTO.ResolvePagination(vals.Get("page"), vals.Get("limit"))

@@ -12,7 +12,7 @@ func crawlerRouter(c *pres.Controllers) http.Handler {
 	r := chi.NewRouter()
 	r.Use(pres.AuthMiddleware)
 	r.Post("/", pres.JsonHandler(c.TriggerCrawlerJobController))
-	r.Get("/", pres.JsonHandler(c.ListExtractios))
+	r.Get("/", pres.JsonHandler(c.ListExtractions))
 	return r
 }
 

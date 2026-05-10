@@ -83,10 +83,15 @@ func main() {
 			return bstrapErr
 		}
 
-		extrErr := crawlerService.PatchExtractionByFilepathAndId(strconv.FormatInt(extractionId, 10), outputPath)
+		extrErr := crawlerService.PatchExtractionContentFromFilepath(strconv.FormatInt(extractionId, 10), outputPath)
 		if extrErr != nil {
 			return extrErr
 		}
+		if remErr := os.Remove(outputPath); remErr != nil {
+			slog.Error("failed to remove output file", "err", remErr)
+			return extrErr
+		}
+		slog.Info("removed output file", "otpPath", outputPath)
 		return nil
 	}, 100)
 
